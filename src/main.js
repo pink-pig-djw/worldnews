@@ -77,7 +77,12 @@ function renderTabs() {
   $('#side-tabs').innerHTML = TABS.map(([id, ic]) => `<button class="side-tab ${side === id ? 'on' : ''}" data-tab="${id}" role="tab">${icon(ic, 15)}${esc(t().tabs[id])}</button>`).join('');
 }
 
-function setTab(tab) {
+function setTab(tab, fromHistory = false) {
+  const was = ui.tab;
+  if (isMobile() && !fromHistory) {
+    if (was === 'map' && tab !== 'map') pushSheet();
+    else if (was !== 'map' && tab === 'map') popSheet();
+  }
   ui.tab = tab;
   app.dataset.tab = tab;
   renderTabs();
@@ -240,16 +245,17 @@ function renderLayers() {
   // arcs (focus on the current selection)
   const cur = ui.current;
   const focus = cur?.type === 'place' ? cur.id : cur?.type === 'country' ? cur.cc : null;
-  view.setArcs(L.arcs ? v.arcs.slice(0, 32) : [], focus);
+  view.setArcs(L.arcs ? v.arcs.slice(0, isMobile() ? 14 : 32) : [], focus);
 
-  // light pillars for the hottest places
-  const top = v.places.slice(0, 32);
+  // light pillars for the hottest places (fewer, slimmer ones on phones)
+  const phone = isMobile();
+  const top = v.places.slice(0, phone ? 16 : 32);
   const max = top[0]?.score || 1;
   view.setPillars(
     L.pillars
       ? top.map((p) => {
           const n = Math.sqrt(p.score / max);
-          return { lat: p.lat, lng: p.lng, color: CAT[p.topCat]?.color || '#fff', height: 0.02 + 0.2 * n, width: 0.7 + 1.5 * n };
+          return { lat: p.lat, lng: p.lng, color: CAT[p.topCat]?.color || '#fff', height: (0.02 + 0.2 * n) * (phone ? 0.6 : 1), width: (0.7 + 1.5 * n) * (phone ? 0.55 : 1) };
         })
       : [],
   );
@@ -282,7 +288,7 @@ view.onFrame(() => {
 function renderRings() {
   const v = store.view;
   const rings = [];
-  const zs = zoomScale();
+  const zs = zoomScale() * (isMobile() ? 0.7 : 1);
   if (settings.layers.rings) {
     const max = v.places[0]?.score || 1;
     for (const p of v.places.slice(0, 40)) {
@@ -469,6 +475,7 @@ const detailBody = $('#detail-body');
 
 function openDetail(html, keep = false) {
   const refresh = keep && !detail.hidden;
+  if (detail.hidden) pushSheet();
   detail.hidden = false;
   // the header lives outside the scroll area so it stays put while the stories scroll
   const tpl = document.createElement('template');
@@ -503,15 +510,16 @@ function restoreStoryState(box, open) {
   for (const a of box.querySelectorAll('[data-story]')) if (open.has(a.dataset.story)) a.querySelector('.others-list')?.removeAttribute('hidden');
 }
 
-function closeDetail() {
+function closeDetail(fromHistory = false) {
   if (!ui.current && detail.hidden) return;
+  if (!fromHistory && !detail.hidden) popSheet();
   ui.current = null;
   detail.hidden = true;
   detail.style.removeProperty('--sheet-h');
   app.classList.remove('has-detail');
   markers.select({});
   view.setSelectedCountry(null);
-  view.setArcs(settings.layers.arcs ? store.view.arcs.slice(0, 32) : [], null);
+  view.setArcs(settings.layers.arcs ? store.view.arcs.slice(0, isMobile() ? 14 : 32) : [], null);
   renderRings();
   renderPaths();
   setHash('');
@@ -540,7 +548,7 @@ function selectPlace(place, { storyId = null, fromTour = false } = {}) {
   view.setSelectedCountry(place.kind === 'country' ? place.cc : null);
   fly(place.lat, place.lng, Math.min(view.altitude, altitudeFor(place.kind, place.cc)));
   openDetail(placeDetail(place, store));
-  view.setArcs(settings.layers.arcs ? store.view.arcs.slice(0, 32) : [], place.id);
+  view.setArcs(settings.layers.arcs ? store.view.arcs.slice(0, isMobile() ? 14 : 32) : [], place.id);
   renderRings();
   setHash(`p=${encodeURIComponent(place.id)}`);
   if (storyId) highlightStory(storyId);
@@ -565,7 +573,7 @@ function selectCountry(cc) {
   view.setSelectedCountry(cc);
   if (info) fly(info.lat, info.lng, Math.min(Math.max(view.altitude, 0.7), altitudeFor('country', cc) * 1.15));
   openDetail(countryDetail(cc, store));
-  view.setArcs(settings.layers.arcs ? store.view.arcs.slice(0, 32) : [], cc);
+  view.setArcs(settings.layers.arcs ? store.view.arcs.slice(0, isMobile() ? 14 : 32) : [], cc);
   renderRings();
   setHash(`c=${cc}`);
 }
@@ -701,38 +709,128 @@ window.addEventListener('resize', () => {
 });
 
 // bottom-sheet dragging (mobile)
-for (const handle of $$('[data-sheet-handle]')) {
-  const sheet = handle.parentElement;
+// Bottom sheets (phones): drag by the handle or the header, pull down from the top of the list,
+// fling to snap open/shut. Short taps still reach the buttons underneath.
+const SHEET_H = { detail: '54vh', list: '62vh', full: '90vh' };
+function closeSheet(sheet) {
+  sheet.style.removeProperty('--sheet-h');
+  if (sheet === detail) closeDetail();
+  else setTab('map');
+}
+function attachSheetGestures(sheet, zones, scroller) {
   let startY = 0;
   let startH = 0;
-  handle.addEventListener('pointerdown', (e) => {
-    startY = e.clientY;
+  let lastY = 0;
+  let lastT = 0;
+  let vel = 0;
+  let dragging = false;
+  const begin = (y) => {
+    startY = lastY = y;
+    lastT = performance.now();
+    vel = 0;
     startH = sheet.getBoundingClientRect().height;
+    dragging = true;
     sheet.classList.add('dragging');
-    handle.setPointerCapture(e.pointerId);
-  });
-  handle.addEventListener('pointermove', (e) => {
-    if (!sheet.classList.contains('dragging')) return;
-    const h = Math.max(120, Math.min(window.innerHeight * 0.92, startH - (e.clientY - startY)));
-    sheet.style.setProperty('--sheet-h', `${h}px`);
-  });
-  const end = (e) => {
-    if (!sheet.classList.contains('dragging')) return;
+  };
+  const move = (y) => {
+    const now = performance.now();
+    vel = 0.7 * vel + 0.3 * ((y - lastY) / Math.max(1, now - lastT)); // px/ms, smoothed
+    lastY = y;
+    lastT = now;
+    sheet.style.setProperty('--sheet-h', `${Math.max(80, Math.min(window.innerHeight * 0.92, startH - (y - startY)))}px`);
+  };
+  const finish = () => {
+    if (!dragging) return;
+    dragging = false;
     sheet.classList.remove('dragging');
     const H = window.innerHeight;
-    const h = startH - (e.clientY - startY);
-    if (h < H * 0.3) {
-      sheet.style.removeProperty('--sheet-h');
-      if (sheet === detail) closeDetail();
-      else setTab('map');
-      return;
-    }
-    sheet.style.setProperty('--sheet-h', h > H * 0.72 ? '90vh' : sheet === detail ? '58vh' : '64vh');
+    const h = startH - (lastY - startY);
+    if (vel > 0.55 || h < H * 0.3) return closeSheet(sheet);
+    const full = vel < -0.55 || h > H * 0.72;
+    sheet.style.setProperty('--sheet-h', full ? SHEET_H.full : sheet === detail ? SHEET_H.detail : SHEET_H.list);
     setTimeout(updateOffset, 340);
   };
-  handle.addEventListener('pointerup', end);
-  handle.addEventListener('pointercancel', end);
+  for (const zone of zones) {
+    let downY = null;
+    let id = null;
+    zone.addEventListener('pointerdown', (e) => {
+      if (!isMobile()) return;
+      downY = e.clientY;
+      id = e.pointerId;
+    });
+    zone.addEventListener('pointermove', (e) => {
+      if (downY == null || e.pointerId !== id) return;
+      if (!dragging) {
+        if (Math.abs(e.clientY - downY) < 6) return; // still a tap
+        zone.setPointerCapture(id);
+        begin(downY);
+      }
+      move(e.clientY);
+    });
+    const up = () => {
+      downY = null;
+      finish();
+    };
+    zone.addEventListener('pointerup', up);
+    zone.addEventListener('pointercancel', up);
+  }
+  // pulling down while the list is already at its top moves the sheet instead
+  if (!scroller) return;
+  let touchY = null;
+  scroller.addEventListener('touchstart', (e) => (touchY = scroller.scrollTop <= 0 ? e.touches[0].clientY : null), { passive: true });
+  scroller.addEventListener(
+    'touchmove',
+    (e) => {
+      if (touchY == null) return;
+      const y = e.touches[0].clientY;
+      if (!dragging) {
+        if (y - touchY < 8 || scroller.scrollTop > 0) {
+          if (touchY - y > 8) touchY = null; // scrolling up: leave it to the list
+          return;
+        }
+        begin(touchY);
+      }
+      e.preventDefault();
+      move(y);
+    },
+    { passive: false },
+  );
+  scroller.addEventListener('touchend', () => {
+    touchY = null;
+    finish();
+  });
+  scroller.addEventListener('touchcancel', () => {
+    touchY = null;
+    finish();
+  });
 }
+attachSheetGestures(detail, [detail.querySelector('[data-sheet-handle]'), detailHead], detailBody);
+attachSheetGestures($('#sidebar'), [$('#sidebar [data-sheet-handle]')], $('#side-body'));
+
+// Phones: the back button/gesture closes the open sheet instead of leaving the site.
+const sheetHistory = { depth: 0, silent: 0 };
+function pushSheet() {
+  if (!isMobile()) return;
+  try {
+    history.pushState({ wpSheet: sheetHistory.depth + 1 }, '', location.href);
+    sheetHistory.depth++;
+  } catch {
+    /* sandboxed */
+  }
+}
+function popSheet() {
+  if (!sheetHistory.depth) return;
+  sheetHistory.depth--;
+  sheetHistory.silent++;
+  history.back();
+}
+window.addEventListener('popstate', () => {
+  if (sheetHistory.silent) return void sheetHistory.silent--;
+  if (!sheetHistory.depth) return;
+  sheetHistory.depth--;
+  if (!detail.hidden) closeDetail(true);
+  else if (ui.tab !== 'map') setTab('map', true);
+});
 
 // ---------------------------------------------------------------- tooltip (desktop hover)
 const tooltip = $('#tooltip');
@@ -958,7 +1056,7 @@ document.addEventListener('keydown', (e) => {
 
 function setHash(h) {
   try {
-    history.replaceState(null, '', h ? `#${h}` : location.pathname + location.search);
+    history.replaceState(history.state, '', h ? `#${h}` : location.pathname + location.search); // keep sheet entries
   } catch {
     /* sandboxed */
   }

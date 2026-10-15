@@ -8,6 +8,9 @@ import { esc } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 
 const DEG = Math.PI / 180;
+// Phones get smaller, calmer markers (the tap target stays large, see .mk::before in the CSS).
+const phoneQuery = window.matchMedia('(max-width: 820px)');
+const phone = () => phoneQuery.matches;
 
 function angDist(a, b) {
   // fast great-circle distance in degrees (haversine)
@@ -54,7 +57,7 @@ export function createMarkerLayer(view, root, handlers) {
 
   function recluster() {
     const ppd = pxPerDegree();
-    const threshold = 38 / ppd; // degrees: merge markers closer than ~38px
+    const threshold = (phone() ? 32 : 38) / ppd; // degrees: merge markers closer than ~38px (32px on phones' smaller dots)
     const sorted = [...state.places].sort((a, b) => b.score - a.score);
     const clusters = [];
     for (const p of sorted) {
@@ -104,7 +107,7 @@ export function createMarkerLayer(view, root, handlers) {
     const norm = Math.sqrt(c.score / state.maxScore);
     // minor places become small dots so the real hotspots stand out
     const minor = norm < 0.2 && c.count < 3;
-    const size = minor ? 9 : Math.round(14 + 20 * norm);
+    const size = phone() ? (minor ? 7 : Math.round(10 + 13 * norm)) : minor ? 9 : Math.round(14 + 20 * norm);
     el.classList.toggle('is-minor', minor);
     const lead = c.lead.stories[0];
     const iconName = SUB_ICON[lead?.sub] && lead.cat === c.topCat ? SUB_ICON[lead.sub] : CAT[c.topCat]?.icon;
@@ -124,8 +127,10 @@ export function createMarkerLayer(view, root, handlers) {
     if (el.__sig === sig) return;
     el.__sig = sig;
     el.__lw = null;
-    el.innerHTML = `<span class="mk-halo"></span><span class="mk-core">${size >= 19 ? icon(iconName, Math.round(size * 0.52)) : ''}</span>${
-      c.count > 1 && !minor ? `<span class="mk-count">${c.count > 99 ? '99+' : c.count}</span>` : ''
+    const iconMin = phone() ? 15 : 19;
+    const countMin = phone() ? 14 : 0;
+    el.innerHTML = `<span class="mk-halo"></span><span class="mk-core">${size >= iconMin ? icon(iconName, Math.round(size * 0.56)) : ''}</span>${
+      c.count > 1 && !minor && size >= countMin ? `<span class="mk-count">${c.count > 99 ? '99+' : c.count}</span>` : ''
     }${isNew ? `<span class="mk-new">${esc(t().newBadge)}</span>` : ''}<span class="mk-label"><b>${name}</b>${more ? `<i>${more}</i>` : ''}</span>`;
   }
 
@@ -137,11 +142,11 @@ export function createMarkerLayer(view, root, handlers) {
       e.stopPropagation();
       handlers.onQuake(q);
     });
-    const size = Math.round(10 + (q.mag - 4.5) * 7);
+    const size = Math.round((phone() ? 8 : 10) + (q.mag - 4.5) * (phone() ? 5 : 7));
     el.style.setProperty('--s', `${size}px`);
     el.style.setProperty('--c', q.alert && q.alert !== 'green' ? HAZARD_COLOR[q.alert] : QUAKE_COLOR);
     el.classList.toggle('is-fresh', Date.now() / 1000 - q.time < 6 * 3600);
-    el.innerHTML = `<span class="mk-halo"></span><span class="mk-core">${size >= 17 ? `<em>${q.mag.toFixed(1)}</em>` : ''}</span>`;
+    el.innerHTML = `<span class="mk-halo"></span><span class="mk-core">${size >= (phone() ? 15 : 17) ? `<em>${q.mag.toFixed(1)}</em>` : ''}</span>`;
     el.setAttribute('aria-label', `M${q.mag} ${quakePlace(q)}`);
     return el;
   }
@@ -156,8 +161,8 @@ export function createMarkerLayer(view, root, handlers) {
     });
     const big = h.alert === 'red' || h.alert === 'orange';
     el.style.setProperty('--c', HAZARD_COLOR[h.alert] || '#ffcc33');
-    el.style.setProperty('--s', big ? '26px' : '19px');
-    el.innerHTML = `<span class="mk-core">${icon(HAZARD_ICON[h.type] || 'alert', big ? 15 : 12)}</span>`;
+    el.style.setProperty('--s', phone() ? (big ? '18px' : '13px') : big ? '26px' : '19px');
+    el.innerHTML = `<span class="mk-core">${icon(HAZARD_ICON[h.type] || 'alert', phone() ? (big ? 11 : 8) : big ? 15 : 12)}</span>`;
     el.setAttribute('aria-label', hazardText(h, 'title'));
     return el;
   }
@@ -311,7 +316,7 @@ export function createMarkerLayer(view, root, handlers) {
       const size = parseFloat(r.el.style.getPropertyValue('--s')) || 18;
       boxes.push({ x: s.x - size / 2, y: s.y - size / 2, w: size, h: size });
     }
-    const maxLabels = window.innerWidth < 820 ? 7 : 14;
+    const maxLabels = window.innerWidth < 820 ? 5 : 14;
     let n = 0;
     for (const r of news) {
       const s = r.screen;
@@ -332,7 +337,7 @@ export function createMarkerLayer(view, root, handlers) {
     }
     const alt = view.altitude;
     const cam = view.camera;
-    const maxCountryLabels = alt > 2.2 ? 24 : alt > 1.2 ? 40 : 80;
+    const maxCountryLabels = (alt > 2.2 ? 24 : alt > 1.2 ? 40 : 80) * (phone() ? 0.5 : 1);
     const maxRank = alt > 2.2 ? 110 : alt > 1.2 ? 150 : 999;
     let shown = 0;
     const ranked = countryLabels.filter((lb) => COUNTRY_RANK[lb.cc] < maxRank).map((lb) => ({ lb, p: view.project(lb.lat, lb.lng, 0.005, cam) }))

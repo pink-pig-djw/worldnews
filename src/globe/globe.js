@@ -278,7 +278,7 @@ export function createGlobeView(container, { quality = 'high' } = {}) {
       const dim = focus && !(a.to === focus || a.from === focus) ? 0.12 : 1;
       return [hexToRgba(c, 0.06 * dim), hexToRgba(c, 0.95 * dim)];
     })
-      .arcStroke((a) => (0.22 + 0.55 * Math.sqrt(a.weight / max)) * ks)
+      .arcStroke((a) => (0.22 + 0.55 * Math.sqrt(a.weight / max)) * ks * (mobile ? 0.6 : 1))
       .arcDashAnimateTime((a) => 3200 - 1600 * Math.sqrt(a.weight / max))
       .arcsData(arcs);
   }
@@ -343,7 +343,8 @@ export function createGlobeView(container, { quality = 'high' } = {}) {
   // Pillars are a far-away overview cue; shrink them as the camera closes in so they never turn into laser beams.
   frameHooks.add((cam) => {
     const alt = cam.position.length() / R - 1;
-    const k = Math.min(1, Math.max(0.06, (alt - 0.15) / 1.6));
+    // on phones pillars fade out entirely when zoomed in, where they read as stray lines
+    const k = mobile ? Math.min(1, Math.max(0, (alt - 0.75) / 1.5)) : Math.min(1, Math.max(0.06, (alt - 0.15) / 1.6));
     for (const m of pillars) {
       if (!m.parent) {
         pillars.delete(m);
@@ -351,6 +352,7 @@ export function createGlobeView(container, { quality = 'high' } = {}) {
       }
       if (m.__k === k || !m.__d) continue;
       m.__k = k;
+      m.visible = k > 0.01;
       m.scale.set(m.__d.width * (0.5 + 0.5 * k), m.__d.height * R * k, m.__d.width * (0.5 + 0.5 * k));
     }
   });
