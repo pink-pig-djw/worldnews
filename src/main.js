@@ -393,11 +393,17 @@ function changeLanguage(lang) {
 
 // ---------------------------------------------------------------- detail panel & selection
 const detail = $('#detail');
+const detailHead = $('#detail-head');
 const detailBody = $('#detail-body');
 
 function openDetail(html) {
   detail.hidden = false;
-  detailBody.innerHTML = html;
+  // the header lives outside the scroll area so it stays put while the stories scroll
+  const tpl = document.createElement('template');
+  tpl.innerHTML = html;
+  const head = tpl.content.querySelector('.d-head');
+  detailHead.replaceChildren(...(head ? [head] : []));
+  detailBody.replaceChildren(tpl.content);
   detailBody.scrollTop = 0;
   app.classList.add('has-detail');
   view.setAutoRotate(false);
@@ -551,7 +557,7 @@ function reopenCurrent() {
   }
 }
 
-detailBody.addEventListener('click', async (e) => {
+detail.addEventListener('click', async (e) => {
   const a = e.target.closest('[data-action]');
   if (!a) return;
   const { action } = a.dataset;

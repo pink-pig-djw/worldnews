@@ -183,6 +183,8 @@ export class Geoparser {
       }
     }
     if (!loc) return null;
+    // demonyms ("Ukrainian") are separate entries only so they can weigh less; locate them at the country
+    if (loc.id.startsWith('d-')) loc = this.places.find((p) => p.id === `c-${loc.cc}`) || loc;
 
     const country = REAL(loc.cc) ? loc.cc : null;
     const related = [...countryScore.entries()]

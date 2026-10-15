@@ -37,6 +37,9 @@ function args() {
 const opts = args();
 const now = Math.round(Date.now() / 1000);
 const geo = Geoparser.load(join(ROOT, 'scripts/data/gazetteer.json'));
+// Some Chinese feeds mix in traditional characters; match against a simplified copy of the text.
+const T2S = JSON.parse(readFileSync(join(ROOT, 'scripts/data/t2s.json'), 'utf8'));
+const simplify = (s) => (s ? s.replace(/[\u3400-\u9fff\uf900-\ufaff]/g, (c) => T2S[c] || c) : s);
 
 async function load(kind, id, url) {
   if (opts.fixtures) {
@@ -65,8 +68,11 @@ function toStory(item, src) {
   if (summary.startsWith(title)) summary = summary.slice(title.length).replace(/^[\s:：-]+/, '');
   summary = truncate(summary, 300);
   const time = Math.min(item.date ?? now, now);
-  const g = geo.parse(title, summary, src.lang);
-  const c = classify(title, summary, src.lang);
+  const zh = src.lang === 'zh';
+  const mt = zh ? simplify(title) : title;
+  const ms = zh ? simplify(summary) : summary;
+  const g = geo.parse(mt, ms, src.lang);
+  const c = classify(mt, ms, src.lang);
   const story = {
     id: hashId(normalizeUrl(item.link)),
     title,

@@ -7,7 +7,7 @@ const BASE_SEVERITY = { conflict: 0.55, disaster: 0.5, unrest: 0.45, society: 0.
 
 // [category, subtype, weight, englishRegex, chineseRegex]
 const RULES = [
-  ['conflict', 'airstrike', 3, /\bair ?(?:strikes?|raids?)\b|\bbombard(?:s|ed|ment)?\b|\bwarplanes?\b|\bfighter jets?\b|\bbomb(?:s|ed|ing)\b(?! threat)|\b(?:israeli|russian|us|u\.s\.|ukrainian|deadly|retaliatory|military|pakistani|indian|saudi|turkish) strikes?\b|\bstrikes? (?:kill|hit|target|on)\b|\b\d[\d,]* (?:air ?)?strikes\b/i, /空袭|轰炸|战机|空中打击|军事打击/],
+  ['conflict', 'airstrike', 3, /\bair ?(?:strikes?|raids?)\b|\bbombard(?:s|ed|ment)?\b|\bwarplanes?\b|\bfighter jets?\b|\bbomb(?:s|ed|ing)\b(?! threat)|\b(?:israeli|russian|us|u\.s\.|ukrainian|deadly|retaliatory|military|pakistani|indian|saudi|turkish) strikes?\b|\bstrikes? (?:kill|hit|target|on)\b|\b\d[\d,]* (?:air ?)?strikes\b|\b(?:refinery|drone|missile|retaliatory|deadly|overnight|cross-border|precision|pre-emptive|preemptive) strikes?\b/i, /空袭|轰炸|战机|空中打击|军事打击/],
   ['conflict', 'clash', 1.5, /\bhouthis?\b|\bhamas\b|\bhezbollah\b|\btaliban\b|\brsf\b|\bal-shabaab?\b|\bboko haram\b|\bm23\b|\bisis\b|\bislamic state\b|\bwagner\b/i, /胡塞|哈马斯|真主党|塔利班|快速支援部队|青年党|博科圣地|伊斯兰国|瓦格纳/],
   ['conflict', 'clash', 1.2, /\bkill(?:s|ed|ing)\b|\bdead\b|\bcasualties\b/i, /打死|炸死|伤亡/],
   ['conflict', 'missile', 3, /\bmissiles?\b|\brockets?\b(?! launch)|\bballistic\b|\binterceptors?\b|\biron dome\b|\bhypersonic\b/i, /导弹|火箭弹|拦截|弹道/],
@@ -27,8 +27,9 @@ const RULES = [
   ['disaster', 'volcano', 4, /\bvolcano(?:es)?\b|\bvolcanic\b|\beruptions?\b|\blava\b|\bash (?:cloud|plume)\b/i, /火山|喷发|岩浆/],
   ['disaster', 'heat', 3, /\bheat ?waves?\b|\bextreme heat\b|\bdroughts?\b|\brecord (?:temperatures|heat)\b|\bscorching\b/i, /热浪|高温|干旱|旱灾|酷热/],
   ['disaster', 'landslide', 3.5, /\blandslides?\b|\bmudslides?\b|\bavalanches?\b/i, /山体滑坡|滑坡|泥石流|雪崩/],
-  ['disaster', 'accident', 3, /\b(?:plane|helicopter|jet|bus|train|boat|ferry|car|road) (?:crash|accident|collision)\b|\bcrash(?:es|ed)? (?:kills?|killing)\b|\bderail(?:ed|ment|s)?\b|\b(?:building|bridge|mine|dam) collapse\b|\bcollapsed\b|\bcapsiz(?:e|ed|es)\b|\bshipwreck\b|\bsank\b|\bstampede\b|\bcrush\b|\bmine (?:blast|accident)\b/i, /坠机|空难|失事|脱轨|坍塌|倒塌|沉船|翻船|矿难|踩踏|事故|撞车/],
+  ['disaster', 'accident', 3, /\b(?:plane|helicopter|jet|bus|train|boat|ferry|car|road) (?:crash|accident|collision)\b|\bcrash(?:es|ed)? (?:kills?|killing)\b|\bderail(?:ed|ment|s)?\b|\b(?:roof|building|bridge|mine|dam|school|stadium|tower|wall|house|hotel|church|mosque|apartment|block|structure)s? (?:collapse[sd]?|caves? in)\b|\bcollapsed\b|\bcapsiz(?:e|ed|es)\b|\bshipwreck\b|\bsank\b|\bstampede\b|\bcrush\b|\bmine (?:blast|accident)\b/i, /坠机|空难|失事|脱轨|坍塌|倒塌|沉船|翻船|矿难|踩踏|事故|撞车/],
 
+  ['disaster', 'accident', 1.5, /\bdisasters?\b/i, /灾难|惨剧/],
   ['unrest', 'protest', 3, /\bprotest(?:s|ers|ors|ing|ed)?\b|\bdemonstrat(?:ions?|ors|ed|ing)\b|\brall(?:y|ies)\b|\bmarch(?:ed|ers|es)\b|\bsit-ins?\b/i, /抗议|示威|游行|集会/],
   ['unrest', 'riot', 3.5, /\briots?\b|\brioting\b|\bunrest\b|\blooting\b|\btear ?gas\b|\bcrackdown\b|\bcurfew\b|\bmartial law\b|\bstate of emergency\b/i, /骚乱|暴乱|动荡|催泪弹|镇压|宵禁|戒严|紧急状态/],
   ['unrest', 'coup', 5, /\bcoup\b|\bjunta\b|\bmutiny\b|\boverthrow(?:n)?\b|\bputsch\b|\bseize[sd]? power\b/i, /政变|军政府|兵变|夺权/],
@@ -37,7 +38,7 @@ const RULES = [
 
   ['politics', 'election', 3, /\belections?\b|\belectoral\b|\bvot(?:e|es|ed|ers|ing)\b|\bballots?\b|\breferendum\b|\bcandidates?\b|\bcampaign(?:ing)?\b|\brun-?off\b|\binaugurat/i, /选举|大选|投票|公投|候选人|竞选|当选|选民|就职/],
   ['politics', 'government', 1.5, /\bgovernment\b|\bparliament(?:ary)?\b|\bprime minister\b|\bpresident(?:ial)?\b|\bcabinet\b|\bministers?\b|\bsenate\b|\bcongress\b|\blawmakers?\b|\blegislat(?:ure|ion|ive|ors?)\b|\bimpeach(?:ment|ed)?\b|\bresign(?:s|ed|ation)?\b|\bopposition\b|\bcoalition\b|\bpolicy\b|\bchancellor\b|\bbudget\b/i, /政府|议会|国会|总理|总统|首相|内阁|部长|法案|弹劾|辞职|执政|反对党|联合政府|政策|政坛|预算/],
-  ['politics', 'court', 2, /\bcourts?\b|\bjudges?\b|\btrials?\b|\bruling\b|\bsentenced?\b|\bverdict\b|\bconvicted\b|\bacquitted\b|\blawsuits?\b|\bappeals? court\b|\bindicted\b|\bcharged\b/i, /法院|法官|审判|判决|判处|裁决|起诉|上诉|庭审|裁定/],
+  ['politics', 'court', 2, /\bcourts?\b|\bjudges?\b|\b(?:on|stands?|faces?|murder|fraud|criminal|corruption|treason|war crimes|genocide) trials?\b|\btrials? (?:of|over|begins|opens|starts|verdict)\b|\bruling\b|\bsentenced?\b|\bverdict\b|\bconvicted\b|\bacquitted\b|\blawsuits?\b|\bsue[sd]?\b/i, /法院|法官|审判|判决|判处|裁决|起诉|上诉|庭审|裁定|开庭/],
   ['politics', 'corruption', 2, /\bcorruption\b|\bbriber?y?\b|\bembezzle(?:ment|d)?\b|\bgraft\b/i, /腐败|贪腐|受贿|贪污|行贿/],
 
   ['diplomacy', 'summit', 2.5, /\bsummits?\b|\bG7\b|\bG20\b|\bBRICS\b|\bstate visit\b|\bvisits?\b|\bmeets?\b|\bmeeting with\b|\btalks\b|\bbilateral\b|\bdiplomat(?:ic|s|cy)?\b|\benvoys?\b|\bambassadors?\b|\bforeign ministers?\b|\bsecretary of state\b|\bforeign policy\b/i, /峰会|会晤|会谈|访问|外交|外长|大使|特使|双边|首脑|通话|磋商/],
@@ -55,7 +56,8 @@ const RULES = [
   ['society', 'health', 0.8, /\bWHO\b|\bhospitals?\b|\bhealth\b|\bmedical\b/i, /卫生|医院|健康|医疗/],
   ['society', 'humanitarian', 3, /\bhumanitarian\b|\bfamine\b|\bhunger\b|\bstarv(?:ation|ing)\b|\bmalnutrition\b|\baid (?:convoy|workers?|trucks?|agenc(?:y|ies)|deliveries)\b|\brefugees?\b|\bdisplaced\b|\bdisplacement\b|\bevacuat(?:e|ed|ion|ions)\b|\brelief\b/i, /人道|饥荒|饥饿|营养不良|援助|难民|流离失所|撤离|救援|救济/],
   ['society', 'migration', 3, /\bmigrants?\b|\bmigration\b|\basylum\b|\bdeport(?:ed|ation|ations|s)?\b|\bborder crossings?\b|\bsmuggl(?:ing|ers)\b/i, /移民|庇护|驱逐出境|遣返|偷渡/],
-  ['society', 'crime', 2.5, /\bpolice\b|\bmurder(?:ed|s)?\b|\bshootings?\b|\bstabbing\b|\brobbery\b|\bkidnap(?:ped|ping|pings)?\b|\babduct(?:ed|ion)\b|\bgangs?\b|\bcartels?\b|\bdrugs?\b|\btrafficking\b|\bfraud\b|\bscams?\b|\bprisons?\b/i, /警方|谋杀|凶杀|枪击|持刀|抢劫|绑架|帮派|贩毒|毒品|走私|诈骗|监狱/],
+  ['society', 'crime', 3, /\brape\b|\bsexual (?:assault|abuse|misconduct)\b|\bchild abuse\b/i, /性侵|强奸|猥亵/],
+  ['society', 'crime', 2.5, /\bcharged\b|\bindicted\b|\bpolice\b|\bmurder(?:ed|s)?\b|\bshootings?\b|\bstabbing\b|\brobbery\b|\bkidnap(?:ped|ping|pings)?\b|\babduct(?:ed|ion)\b|\bgangs?\b|\bcartels?\b|\bdrugs?\b|\btrafficking\b|\bfraud\b|\bscams?\b|\bprisons?\b/i, /警方|谋杀|凶杀|枪击|持刀|抢劫|绑架|帮派|贩毒|毒品|走私|诈骗|监狱/],
   ['society', 'rights', 2, /\bhuman rights\b|\brights groups?\b|\bcensorship\b|\bjournalists?\b|\bpress freedom\b|\bLGBT\w*\b|\bwomen'?s rights\b|\bdiscrimination\b|\bracism\b/i, /人权|审查|记者|新闻自由|歧视|种族/],
   ['society', 'culture', 1, /\bschools?\b|\buniversit(?:y|ies)\b|\bstudents?\b|\beducation\b|\bculture\b|\bmuseums?\b|\bfestivals?\b|\bfootball\b|\bolympics?\b|\bworld cup\b|\bfilm\b|\bmusic\b/i, /学校|大学|学生|教育|文化|博物馆|节日|体育|足球|奥运|世界杯|电影|音乐/],
 

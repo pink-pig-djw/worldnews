@@ -127,6 +127,10 @@ export class Store {
     }
     for (const c of countries.values()) c.topCat = Object.entries(c.cats).sort((a, b) => b[1] - a[1])[0][0];
     const countryList = [...countries.values()].sort((a, b) => b.score - a.score);
+    // Feeds only list recent items, so a 12 h-vs-previous-12 h trend is meaningful only once the
+    // rolling store has really been collecting for a day.
+    const firstSeen = Math.min(now, ...(this.raw?.stories || []).map((s) => s.seen || now));
+    const trendsReliable = now - firstSeen >= 24 * 3600;
 
     // arcs between countries mentioned together and the event location
     const arcMap = new Map();
@@ -159,7 +163,7 @@ export class Store {
     }
     const headlines = [...clusters.values()];
 
-    this.derived = { now, stories, places: placeList, placeById: places, countries: countryList, countryById: countries, arcs, headlines };
+    this.derived = { now, stories, places: placeList, placeById: places, countries: countryList, countryById: countries, arcs, headlines, trendsReliable };
     return this.derived;
   }
 

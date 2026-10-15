@@ -51,7 +51,7 @@ export function hotTab(store) {
         .map((c, i) => {
           const col = CAT[c.topCat]?.color || '#fff';
           const diff = c.recent - c.before;
-          const trend = c.before + c.recent >= 3 && Math.abs(diff) >= 2 ? `<span class="trend ${diff > 0 ? 'up' : 'down'}">${icon(diff > 0 ? 'up' : 'down', 11)}${esc(diff > 0 ? t().trendUp : t().trendDown)}</span>` : '';
+          const trend = v.trendsReliable && c.before + c.recent >= 3 && Math.abs(diff) >= 2 ? `<span class="trend ${diff > 0 ? 'up' : 'down'}">${icon(diff > 0 ? 'up' : 'down', 11)}${esc(diff > 0 ? t().trendUp : t().trendDown)}</span>` : '';
           return `<button class="row" data-action="country" data-cc="${esc(c.cc)}" style="--c:${col}">
             <span class="rank">${i + 1}</span>
             <span class="row-main"><span class="row-title">${flag(c.cc)} ${esc(countryName(c.cc))}</span>
