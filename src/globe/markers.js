@@ -3,6 +3,7 @@
 import { CAT, HAZARD_COLOR, QUAKE_COLOR, SUB_ICON } from '../config.js';
 import { t } from '../i18n.js';
 import { allCountries, countryInfo, countryName, placeName } from '../data/store.js';
+import { hazardText, quakePlace } from '../data/localize.js';
 import { esc } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 
@@ -141,7 +142,7 @@ export function createMarkerLayer(view, root, handlers) {
     el.style.setProperty('--c', q.alert && q.alert !== 'green' ? HAZARD_COLOR[q.alert] : QUAKE_COLOR);
     el.classList.toggle('is-fresh', Date.now() / 1000 - q.time < 6 * 3600);
     el.innerHTML = `<span class="mk-halo"></span><span class="mk-core">${size >= 17 ? `<em>${q.mag.toFixed(1)}</em>` : ''}</span>`;
-    el.setAttribute('aria-label', `M${q.mag} ${q.place}`);
+    el.setAttribute('aria-label', `M${q.mag} ${quakePlace(q)}`);
     return el;
   }
 
@@ -157,7 +158,7 @@ export function createMarkerLayer(view, root, handlers) {
     el.style.setProperty('--c', HAZARD_COLOR[h.alert] || '#ffcc33');
     el.style.setProperty('--s', big ? '26px' : '19px');
     el.innerHTML = `<span class="mk-core">${icon(HAZARD_ICON[h.type] || 'alert', big ? 15 : 12)}</span>`;
-    el.setAttribute('aria-label', h.title);
+    el.setAttribute('aria-label', hazardText(h, 'title'));
     return el;
   }
 

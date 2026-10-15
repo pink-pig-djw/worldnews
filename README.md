@@ -13,6 +13,7 @@ A live 3D globe of world news — tap any hotspot to zoom in and read the latest
 | 国家视图 | 点击任意国家查看在该国发生及涉及该国的全部报道 |
 | 关系弧线 | 同一条新闻中同时出现的国家之间画出动态弧线（如“美国 → 伊朗”） |
 | 实时更新 | 服务器每 5 分钟抓取一次；网页每分钟自动检查，有新数据就**无刷新载入**：新报道所在地闪光并标上“新”，顶部弹出可点击的提示，后台标签页标题显示新增条数；正在阅读的列表和详情保持原位置 |
+| 中文界面 | 灾害预警、地震地点按固定格式**直接生成中文**（数字、名称不经机器翻译）；英文报道由浏览器**在本机离线翻译**（电脑版 Chrome 138+ 内置 Translator API，不上传内容），详情页附原文；不支持的浏览器显示原文 |
 | 自然灾害 | USGS 地震（M4.5+，浏览器端**每分钟**直连更新）、GDACS 灾害预警（红/橙/绿）、NASA EONET 风暴轨迹、山火、火山 |
 | 空间站 | 由 CelesTrak 轨道根数用 SGP4 实时推算国际空间站与天宫空间站位置及星下点轨迹 |
 | 其他 | 热点排行与升/降温趋势、滚动快讯、全局搜索、热点自动巡览、中/英双语、写实/暗夜两种地球风格、图层开关、可分享链接、手机底部抽屉 + 桌面侧栏双布局 |
@@ -59,7 +60,7 @@ npm test             # 定位 / 分类 / 解析 / 聚合 单元测试
 | --- | --- |
 | 英文媒体 | BBC、Al Jazeera、The Guardian、The New York Times、NPR、DW、France 24、Sky News、Euronews、SCMP、Times of India、Africanews |
 | 联合国机构 | UN News（英文、中文） |
-| 官方媒体（界面中标注） | CGTN、塔斯社、中国新闻网 |
+| 官方媒体（界面中标注） | CGTN、塔斯社、中国新闻网（中国官方媒体条数减半，报道他国新闻时权重降至 45%） |
 | 中文媒体 | BBC 中文、DW 中文、RFI 华语 |
 | 灾害与空间 | USGS 地震、GDACS（欧盟委员会/联合国）、NASA EONET、CelesTrak |
 | 底图与边界 | NASA Blue Marble / Black Marble（经 three-globe 示例）、Natural Earth |

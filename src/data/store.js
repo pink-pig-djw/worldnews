@@ -28,11 +28,18 @@ export function placeName(p) {
   return (zh ? p.zh || p.name : p.name || p.zh) || countryName(p.cc);
 }
 
-/** Importance of a story right now: severity, breadth of coverage and recency. */
-export function storyWeight(s, now) {
+/** Some outlets count less (e.g. state media reporting on other countries); see scripts/lib/sources.mjs. */
+export function sourceFactor(s, src) {
+  const w = src?.weight;
+  if (!w) return 1;
+  return (src.homeCc || [src.country]).includes(s.loc?.cc) ? w.home : w.foreign;
+}
+
+/** Importance of a story right now: severity, breadth of coverage, recency and source weight. */
+export function storyWeight(s, now, src) {
   const ageH = Math.max(0, (now - s.time) / 3600);
   const decay = Math.max(0.15, Math.pow(0.5, ageH / 18));
-  return s.sev * (1 + 0.35 * ((s.coverage || 1) - 1)) * decay;
+  return s.sev * (1 + 0.35 * ((s.coverage || 1) - 1)) * decay * sourceFactor(s, src);
 }
 
 export class Store {
@@ -106,7 +113,7 @@ export class Store {
       (s) => s.time >= minTime && cats.has(s.cat) && (lang === 'all' || s.lang === lang) && !disabledSources.has(s.source),
     );
     for (const s of stories) {
-      s.w = storyWeight(s, now);
+      s.w = storyWeight(s, now, this.sourceById?.get(s.source));
       s.fresh = this.isFresh(s, now);
     }
 

@@ -10,11 +10,14 @@ import { fileURLToPath } from 'node:url';
 import { classify } from './lib/classify.mjs';
 import { clusterStories } from './lib/cluster.mjs';
 import { Geoparser } from './lib/geo.mjs';
+import { createZh } from './lib/zh.mjs';
 import { mergeHazards, normalizeEonet, normalizeGdacs, normalizeUsgs, parseTle } from './lib/hazards.mjs';
 import { fetchJson, fetchText } from './lib/http.mjs';
 import { parseFeed } from './lib/rss.mjs';
 import { HAZARD_SOURCES, NEWS_SOURCES, SATELLITES } from './lib/sources.mjs';
 import { hashId, HOUR, mapLimit, normalizeUrl, truncate } from './lib/util.mjs';
+
+const SOURCE_BY_ID = new Map(NEWS_SOURCES.map((s) => [s.id, s]));
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -36,7 +39,9 @@ function args() {
 
 const opts = args();
 const now = Math.round(Date.now() / 1000);
-const geo = Geoparser.load(join(ROOT, 'scripts/data/gazetteer.json'));
+const GAZETTEER = JSON.parse(readFileSync(join(ROOT, 'scripts/data/gazetteer.json'), 'utf8'));
+const geo = new Geoparser(GAZETTEER);
+const zh = createZh(GAZETTEER);
 // Some Chinese feeds mix in traditional characters; match against a simplified copy of the text.
 const T2S = JSON.parse(readFileSync(join(ROOT, 'scripts/data/t2s.json'), 'utf8'));
 const simplify = (s) => (s ? s.replace(/[\u3400-\u9fff\uf900-\ufaff]/g, (c) => T2S[c] || c) : s);
@@ -100,6 +105,7 @@ async function fetchNews() {
   await mapLimit(NEWS_SOURCES, 6, async (src) => {
     const started = Date.now();
     const h = { id: src.id, name: src.name, zh: src.zh, lang: src.lang, kind: src.kind, country: src.country, home: new URL(src.url).origin, ok: false, items: 0 };
+    if (src.weight) Object.assign(h, { weight: src.weight, homeCc: src.homeCc });
     try {
       const xml = await load('xml', src.id, src.url);
       const { items } = parseFeed(xml, { tz: src.tz });
@@ -137,7 +143,11 @@ async function fetchHazards(prev) {
     track('eonet', async () => normalizeEonet(await load('json', 'eonet', HAZARD_SOURCES.eonet.url), now)),
   ]);
   const hazards = mergeHazards(gdacs ?? (prev?.hazards || []).filter((h) => h.source === 'gdacs'), eonet ?? (prev?.hazards || []).filter((h) => h.source === 'eonet'));
-  return { quakes: quakes ?? prev?.quakes ?? [], hazards, health };
+  // Chinese wording, rebuilt from each alert's parts (see lib/zh.mjs)
+  for (const h of hazards) h.zh = zh.hazard(h);
+  const qs = quakes ?? prev?.quakes ?? [];
+  for (const q of qs) q.placeZh = zh.quakePlace(q.place) || undefined;
+  return { quakes: qs, hazards, health };
 }
 
 async function fetchSatellites(prev) {
@@ -171,7 +181,16 @@ function mergeWithPrevious(stories, prev) {
   for (const s of prev?.stories || []) {
     if (!byId.has(s.id) && now - s.time <= opts.windowHours * HOUR) byId.set(s.id, s);
   }
-  return [...byId.values()].sort((a, b) => b.time - a.time);
+  const merged = [...byId.values()].sort((a, b) => b.time - a.time);
+  // sources with a foreign-story cap keep only their newest stories about other countries
+  const foreignSeen = new Map();
+  return merged.filter((s) => {
+    const src = SOURCE_BY_ID.get(s.source);
+    if (!src?.foreignCap || src.homeCc.includes(s.loc?.cc)) return true;
+    const n = (foreignSeen.get(s.source) || 0) + 1;
+    foreignSeen.set(s.source, n);
+    return n <= src.foreignCap;
+  });
 }
 
 function stats(stories) {

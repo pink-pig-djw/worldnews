@@ -1,12 +1,14 @@
 import './styles/main.css';
 import { CAT, CATEGORIES, DATA_URL, HAZARD_COLOR, HIDDEN_POLL_MS, isMobile, LIVE_QUAKES_URL, POLL_MS, QUAKE_COLOR, STATUS_URL, SUB_ICON } from './config.js';
 import { getLang, setLang, t, timeAgo } from './i18n.js';
-import { allCountries, countryInfo, countryName, flag, isRealCc, placeName, store } from './data/store.js';
+import { allCountries, countryInfo, countryName, flag, isRealCc, placeName, sourceFactor, store } from './data/store.js';
 import { createGlobeView, hexToRgba } from './globe/globe.js';
 import { createMarkerLayer } from './globe/markers.js';
 import { createSatellites } from './globe/satellites.js';
 import { $, $$, esc, toast } from './ui/dom.js';
 import { normalizeUsgs } from '../scripts/lib/usgs.mjs';
+import { quakePlace, storyTitle } from './data/localize.js';
+import { disableTranslation, enableTranslation, initTranslation, translateNow, translateStories } from './data/translate.js';
 import { icon } from './ui/icons.js';
 import { feedTab, hazardsTab, hotTab, settingsTab } from './ui/lists.js';
 import { clusterDetail, countryDetail, hazardDetail, placeDetail, quakeDetail, satDetail, satKv, storyHtml } from './ui/panels.js';
@@ -26,6 +28,7 @@ function loadSettings() {
     style: saved.style || 'real',
     quality: saved.quality || (lowEnd ? 'medium' : 'high'),
     autoRotate: saved.autoRotate ?? true,
+    autoTranslate: saved.autoTranslate ?? true,
     layers: { ...DEFAULT_LAYERS, ...(saved.layers || {}) },
   };
 }
@@ -386,6 +389,7 @@ $('#side-body').addEventListener('click', (e) => {
   else if (action === 'hazard') selectHazard((store.raw.hazards || []).find((h) => h.id === a.dataset.id));
   else if (action === 'sat') selectSat(a.dataset.id);
   else if (action === 'set-lang') changeLanguage(a.dataset.v);
+  else if (action === 'enable-translate') enableTranslation();
   else if (action === 'set-style') {
     settings.style = a.dataset.v;
     saveSettings();
@@ -408,6 +412,10 @@ $('#side-body').addEventListener('change', (e) => {
     settings.autoRotate = a.checked;
     saveSettings();
     bumpIdle();
+  } else if (a.dataset.action === 'autotranslate') {
+    settings.autoTranslate = a.checked;
+    saveSettings();
+    a.checked ? setupTranslation() : disableTranslation();
   }
 });
 
@@ -422,6 +430,31 @@ function changeLanguage(lang) {
   renderTicker(true);
   markers.refreshLanguage();
   reopenCurrent();
+  setupTranslation();
+}
+
+// ---------------------------------------------------------------- translation (Chinese interface)
+function setupTranslation() {
+  if (getLang() !== 'zh') return;
+  initTranslation({ enabled: settings.autoTranslate, onChange: onTranslation });
+  queueTranslations();
+}
+function queueTranslations() {
+  if (store.raw) translateStories([...store.view.stories].sort((a, b) => b.w - a.w));
+}
+let translationPaint = 0;
+function onTranslation(kind) {
+  if (kind === 'status' && store.raw) queueTranslations();
+  // repaint at most every 400 ms while a batch of translations streams in
+  if (translationPaint) return;
+  translationPaint = setTimeout(() => {
+    translationPaint = 0;
+    renderSide();
+    if (kind !== 'progress') {
+      refreshTickerText();
+      if (ui.current) reopenCurrent();
+    }
+  }, 400);
 }
 
 // ---------------------------------------------------------------- detail panel & selection
@@ -441,7 +474,7 @@ function openDetail(html, keep = false) {
     detailBody.replaceChildren(tpl.content);
   };
   if (refresh) {
-    // live refresh of the open panel: keep the reader's place, opened lists and translations
+    // live refresh of the open panel: keep the reader's place and opened lists
     const state = storyState(detailBody);
     keepReadingPosition(detailBody, () => {
       swap();
@@ -456,30 +489,13 @@ function openDetail(html, keep = false) {
   updateOffset();
 }
 
+/** Which "also reported by" lists are open, so a live re-render can keep them open. */
 function storyState(box) {
-  const open = new Set();
-  const translated = new Map();
-  for (const a of box.querySelectorAll('[data-story]')) {
-    if (a.querySelector('.others-list:not([hidden])')) open.add(a.dataset.story);
-    if (a.querySelector('[data-action="translate"][data-done]'))
-      translated.set(a.dataset.story, { title: a.querySelector('.story-title')?.textContent, sum: a.querySelector('.story-sum')?.textContent });
-  }
-  return { open, translated };
+  return new Set([...box.querySelectorAll('[data-story]')].filter((a) => a.querySelector('.others-list:not([hidden])')).map((a) => a.dataset.story));
 }
 
-function restoreStoryState(box, { open, translated }) {
-  for (const a of box.querySelectorAll('[data-story]')) {
-    const id = a.dataset.story;
-    if (open.has(id)) a.querySelector('.others-list')?.removeAttribute('hidden');
-    const tr = translated.get(id);
-    const btn = tr && a.querySelector('[data-action="translate"]');
-    if (!btn) continue;
-    a.querySelector('.story-title').textContent = tr.title;
-    const sum = a.querySelector('.story-sum');
-    if (sum && tr.sum != null) sum.textContent = tr.sum;
-    btn.innerHTML = `${icon('translate', 13)}${esc(t().showOriginal)}`;
-    btn.dataset.done = '1';
-  }
+function restoreStoryState(box, open) {
+  for (const a of box.querySelectorAll('[data-story]')) if (open.has(a.dataset.story)) a.querySelector('.others-list')?.removeAttribute('hidden');
 }
 
 function closeDetail() {
@@ -653,36 +669,8 @@ detail.addEventListener('click', async (e) => {
     } catch {
       toast(location.href, 4000);
     }
-  } else if (action === 'translate') translateStory(a);
+  }
 });
-
-// Chrome's on-device Translator API (no data leaves the browser); hidden where unsupported.
-let translator = null;
-async function translateStory(btn) {
-  const art = btn.closest('[data-story]');
-  const s = (store.raw?.stories || []).find((x) => x.id === art?.dataset.story);
-  if (!s) return;
-  const title = art.querySelector('.story-title');
-  const sum = art.querySelector('.story-sum');
-  if (btn.dataset.done) {
-    title.textContent = s.title;
-    if (sum) sum.textContent = s.summary;
-    btn.innerHTML = `${icon('translate', 13)}${esc(t().translate)}`;
-    delete btn.dataset.done;
-    return;
-  }
-  btn.textContent = t().translating;
-  try {
-    translator ||= await self.Translator.create({ sourceLanguage: 'en', targetLanguage: 'zh' });
-    title.textContent = await translator.translate(s.title);
-    if (sum && s.summary) sum.textContent = await translator.translate(s.summary);
-    btn.innerHTML = `${icon('translate', 13)}${esc(t().showOriginal)}`;
-    btn.dataset.done = '1';
-  } catch (err) {
-    console.warn(err);
-    btn.remove();
-  }
-}
 
 // keep the globe centred in the area not covered by panels
 function updateOffset() {
@@ -749,7 +737,7 @@ function showMarkerTooltip(item, el) {
   const s = lead.stories[0];
   const c = CAT[item.topCat] || CAT.other;
   tooltip.innerHTML = `<div class="tt-head"><span class="badge" style="--c:${c.color}">${icon(SUB_ICON[s?.sub] || c.icon, 11)}${esc(t().cats[item.topCat])}</span><b>${esc(placeName(lead))}${item.places.length > 1 ? ` +${item.places.length - 1}` : ''}</b></div>
-    <div class="tt-title">${esc(s?.title || '')}</div><div style="color:var(--muted);margin-top:4px">${esc(t().reports(item.count))} · ${esc(timeAgo(item.latest))}</div>`;
+    <div class="tt-title">${esc(s ? storyTitle(s) : '')}</div><div style="color:var(--muted);margin-top:4px">${esc(t().reports(item.count))} · ${esc(timeAgo(item.latest))}</div>`;
   const r = el.getBoundingClientRect();
   tooltip.style.left = `${r.left + 12}px`;
   tooltip.style.top = `${r.top}px`;
@@ -765,7 +753,7 @@ let tickerIdx = 0;
 function renderTicker(force) {
   const now = Date.now() / 1000;
   const items = store.view.stories
-    .filter((s) => s.sev >= 0.5 && now - s.time < 8 * 3600)
+    .filter((s) => s.sev * sourceFactor(s, store.source(s.source)) >= 0.5 && now - s.time < 8 * 3600)
     .sort((a, b) => b.time - a.time)
     .slice(0, 8);
   const ids = items.map((s) => s.id).join();
@@ -775,7 +763,7 @@ function renderTicker(force) {
   const el = $('#ticker');
   el.hidden = !items.length;
   el.innerHTML = `<span class="ticker-tag">${esc(t().breaking)}</span><div class="ticker-win">${items
-    .map((s, i) => `<div class="ticker-item ${i === 0 ? 'in' : 'below'}" data-id="${esc(s.id)}"><span>${flag(s.loc?.cc)} ${esc(s.title)}</span><em>${esc(timeAgo(s.time, now))}</em></div>`)
+    .map((s, i) => `<div class="ticker-item ${i === 0 ? 'in' : 'below'}" data-id="${esc(s.id)}"><span>${flag(s.loc?.cc)} ${esc(storyTitle(s))}</span><em>${esc(timeAgo(s.time, now))}</em></div>`)
     .join('')}</div>`;
 }
 setInterval(() => {
@@ -792,6 +780,14 @@ setInterval(() => {
   next.className = 'ticker-item in';
   cur.className = 'ticker-item above';
 }, 6000);
+/** Swap in translated titles without restarting the rotation. */
+function refreshTickerText() {
+  for (const el of $$('#ticker .ticker-item')) {
+    const s = tickerItems.find((x) => x.id === el.dataset.id);
+    const span = el.querySelector('span');
+    if (s && span) span.textContent = `${flag(s.loc?.cc)} ${storyTitle(s)}`;
+  }
+}
 $('#ticker').addEventListener('click', () => {
   const s = tickerItems[tickerIdx];
   if (s) openStory(s.id);
@@ -844,8 +840,8 @@ function runSearch() {
   for (const c of countries) searchHits.push({ kind: 'country', cc: c.cc, label: `${flag(c.cc)} ${countryName(c.cc)}`, meta: t().reports(v.countryById.get(c.cc)?.count || 0) });
   const places = v.places.filter((p) => p.kind !== 'country' && Math.max(score(p.name), score(p.zh)) > 0).slice(0, 6);
   for (const p of places) searchHits.push({ kind: 'place', id: p.id, label: placeName(p), meta: t().reports(p.count) });
-  const stories = v.stories.filter((s) => score(s.title) > 0 || score(s.summary) > 0).sort((a, b) => b.w - a.w).slice(0, 10);
-  for (const s of stories) searchHits.push({ kind: 'story', id: s.id, label: s.title, meta: timeAgo(s.time) });
+  const stories = v.stories.filter((s) => score(s.title) > 0 || score(s.summary) > 0 || score(storyTitle(s)) > 0).sort((a, b) => b.w - a.w).slice(0, 10);
+  for (const s of stories) searchHits.push({ kind: 'story', id: s.id, label: storyTitle(s), meta: timeAgo(s.time) });
   paintSearch();
 }
 function paintSearch() {
@@ -984,6 +980,7 @@ store.on((reason) => {
   renderSide();
   renderTicker(reason === 'data');
   if (ui.current) reopenCurrent();
+  if (reason !== 'time') queueTranslations();
 });
 
 async function getJson(url, cache = 'no-store') {
@@ -1058,13 +1055,14 @@ function applyData(raw, initial) {
 }
 
 /** New reports: a burst of light where each one happened, a toast linking to the top one, a tab badge. */
-function announce(added) {
+async function announce(added) {
   const shown = new Set(store.view.stories.map((s) => s.id));
   const fresh = added.filter((s) => shown.has(s.id));
   if (!fresh.length) return;
   flash(fresh.filter((s) => s.loc).map((s) => ({ lat: s.loc.lat, lng: s.loc.lng, color: CAT[s.cat]?.color || '#fff' })));
   const top = fresh.reduce((a, b) => (b.w > a.w ? b : a));
-  toast(`${t().newStories(fresh.length)} · ${top.title}`, 7000, { onClick: () => openStory(top.id), live: true });
+  await translateNow(top);
+  toast(`${t().newStories(fresh.length)} · ${storyTitle(top)}`, 7000, { onClick: () => openStory(top.id), live: true });
   if (document.hidden) {
     live.unseen += fresh.length;
     updateTitle();
@@ -1086,7 +1084,7 @@ function mergeQuakes(raw, list) {
   if (!list.length) return [];
   const byId = new Map((raw.quakes || []).map((q) => [q.id, q]));
   const added = list.filter((q) => !byId.has(q.id));
-  for (const q of list) byId.set(q.id, q);
+  for (const q of list) byId.set(q.id, byId.get(q.id)?.placeZh && !q.placeZh ? { ...q, placeZh: byId.get(q.id).placeZh } : q);
   raw.quakes = [...byId.values()].sort((a, b) => b.time - a.time);
   return added;
 }
@@ -1106,7 +1104,7 @@ async function loadLiveQuakes() {
     if (live.quakesPrimed && added.length) {
       flash(added.map((q) => ({ lat: q.lat, lng: q.lng, color: QUAKE_COLOR })));
       const big = added.reduce((a, b) => (b.mag > a.mag ? b : a));
-      if (big.mag >= 6) toast(t().newQuake(big.mag.toFixed(1), big.place), 8000, { onClick: () => selectQuake(big), live: true });
+      if (big.mag >= 6) toast(t().newQuake(big.mag.toFixed(1), quakePlace(big)), 8000, { onClick: () => selectQuake(big), live: true });
     }
     live.quakesPrimed = true;
   } catch {
@@ -1186,5 +1184,6 @@ async function boot() {
   }
   bumpIdle();
   startLiveUpdates();
+  setupTranslation();
 }
 boot();

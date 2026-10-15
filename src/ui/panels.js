@@ -2,6 +2,7 @@
 import { CAT, HAZARD_COLOR, QUAKE_COLOR, SUB_ICON } from '../config.js';
 import { getLang, t, timeAgo } from '../i18n.js';
 import { countryName, flag, isRealCc, placeName } from '../data/store.js';
+import { hazardText, isTranslated, quakePlace, storySummary, storyTitle } from '../data/localize.js';
 import { esc, fmtTime, safeUrl, sevLevel } from './dom.js';
 import { icon } from './icons.js';
 
@@ -30,19 +31,21 @@ export function storyHtml(s, store, { others = [], showPlace = false } = {}) {
   const othersHtml = others.length
     ? `<button class="others" data-action="others">${icon('news', 13)}${esc(t().alsoBy(others.length))}</button>
        <ul class="others-list" hidden>${others
-         .map((o) => `<li><a href="${safeUrl(o.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(sourceName(store, o.source))}</b>${esc(o.title)}</a></li>`)
+         .map((o) => `<li><a href="${safeUrl(o.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(sourceName(store, o.source))}</b>${esc(storyTitle(o))}</a></li>`)
          .join('')}</ul>`
     : '';
-  const canTranslate = getLang() === 'zh' && s.lang === 'en' && 'Translator' in self;
+  // machine-translated reports keep the original headline underneath, so mistakes are easy to spot
+  const tr = isTranslated(s);
+  const textLang = s.lang === 'zh' || tr ? 'zh-CN' : 'en';
   const img = s.image ? `<img class="story-img" src="${safeUrl(s.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : '';
   return `<article class="story" data-story="${esc(s.id)}">
     <div class="story-main">
       <div class="story-meta">${s.fresh ? `<span class="new-badge">${esc(t().newBadge)}</span>` : ''}${catTag(s)}${sevBars(s)}<span class="src">${esc(sourceName(store, s.source))}</span><span>${esc(timeAgo(s.time, now))}${place}</span></div>
-      <a class="story-title" href="${safeUrl(s.url)}" target="_blank" rel="noopener noreferrer" lang="${s.lang === 'zh' ? 'zh-CN' : 'en'}">${esc(s.title)}</a>
-      ${s.summary ? `<p class="story-sum" lang="${s.lang === 'zh' ? 'zh-CN' : 'en'}">${esc(s.summary)}</p>` : ''}
+      <a class="story-title" href="${safeUrl(s.url)}" target="_blank" rel="noopener noreferrer" lang="${textLang}">${esc(storyTitle(s))}</a>
+      ${tr ? `<div class="story-orig" lang="en"><span>${esc(t().original)}</span>${esc(s.title)}</div>` : ''}
+      ${s.summary ? `<p class="story-sum" lang="${storySummary(s) !== s.summary ? 'zh-CN' : textLang}">${esc(storySummary(s))}</p>` : ''}
       <div class="story-foot">
         <a href="${safeUrl(s.url)}" target="_blank" rel="noopener noreferrer">${icon('external', 13)}${esc(t().readSource)}</a>
-        ${canTranslate ? `<button data-action="translate">${icon('translate', 13)}${esc(t().translate)}</button>` : ''}
         ${othersHtml}
       </div>
     </div>${img}
@@ -165,7 +168,7 @@ export function quakeDetail(q, store) {
   return `<div class="d-head">
       <div class="d-top"><span class="badge" style="--c:${c}">${icon('quake', 12)}${esc(t().subs.quake)}</span><span>USGS</span>${closeBtn()}</div>
       <div style="display:flex;align-items:baseline;gap:12px;margin-top:10px"><span class="bignum" style="--c:${c}">M${q.mag.toFixed(1)}</span></div>
-      <h2 class="d-title" style="font-size:18px">${esc(q.place)}</h2>
+      <h2 class="d-title" style="font-size:18px">${esc(quakePlace(q))}</h2>
     </div>
     <dl class="kv">
       <dt>${esc(t().breaking)}</dt><dd>${esc(fmtTime(q.time))} · ${esc(timeAgo(q.time))}</dd>
@@ -183,16 +186,18 @@ export function hazardDetail(h, store) {
   const c = HAZARD_COLOR[h.alert] || '#ffcc33';
   const name = t().subs[h.type] || h.type;
   const news = nearbyNews(h.lat, h.lng, store, (s) => s.cat === 'disaster');
+  const L = (field) => hazardText(h, field);
   return `<div class="d-head">
       <div class="d-top"><span class="badge" style="--c:${c}">${esc(name)}</span><span>${esc(t().alertLevel[h.alert] || '')}</span><span>${h.source === 'gdacs' ? 'GDACS' : 'NASA EONET'}</span>${closeBtn()}</div>
-      <h2 class="d-title" style="font-size:19px">${esc(h.title)}</h2>
+      <h2 class="d-title" style="font-size:19px">${esc(L('title'))}</h2>
+      ${L('title') !== h.title ? `<div class="story-orig" lang="en"><span>${esc(t().original)}</span>${esc(h.title)}</div>` : ''}
     </div>
-    ${h.summary ? `<p class="about" style="margin-top:4px">${esc(h.summary)}</p>` : ''}
+    ${L('summary') ? `<p class="about" style="margin-top:4px">${esc(L('summary'))}</p>` : ''}
     <dl class="kv">
       <dt>${esc(t().breaking)}</dt><dd>${esc(fmtTime(h.time))} · ${esc(timeAgo(h.time))}</dd>
-      ${h.severity ? `<dt>${esc(t().severity)}</dt><dd>${esc(h.severity)}</dd>` : ''}
-      ${h.population ? `<dt>${esc(t().population)}</dt><dd>${esc(h.population)}</dd>` : ''}
-      ${h.country ? `<dt>${esc(t().kinds.country)}</dt><dd>${esc(h.country)}</dd>` : ''}
+      ${L('severity') ? `<dt>${esc(t().severity)}</dt><dd>${esc(L('severity'))}</dd>` : ''}
+      ${L('population') ? `<dt>${esc(t().population)}</dt><dd>${esc(L('population'))}</dd>` : ''}
+      ${L('country') ? `<dt>${esc(t().kinds.country)}</dt><dd>${esc(L('country'))}</dd>` : ''}
       <dt>${esc(t().position)}</dt><dd>${h.lat.toFixed(2)}°, ${h.lng.toFixed(2)}°</dd>
     </dl>
     <div class="actions"><a class="btn" href="${safeUrl(h.url)}" target="_blank" rel="noopener noreferrer">${icon('external', 15)}${h.source === 'gdacs' ? 'GDACS' : 'NASA'}</a>

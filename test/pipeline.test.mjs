@@ -7,6 +7,7 @@ import { Geoparser } from '../scripts/lib/geo.mjs';
 import { normalizeEonet, normalizeGdacs, normalizeUsgs, parseTle } from '../scripts/lib/hazards.mjs';
 import { parseFeed } from '../scripts/lib/rss.mjs';
 import { cleanText, normalizeUrl, parseDate } from '../scripts/lib/util.mjs';
+import { createZh } from '../scripts/lib/zh.mjs';
 
 const geo = Geoparser.load(new URL('../scripts/data/gazetteer.json', import.meta.url));
 const loc = (title, lang = 'en') => geo.parse(title, '', lang)?.loc;
@@ -89,4 +90,30 @@ test('clustering groups the same event across outlets', () => {
   assert.equal(stories[1].cluster, 'a');
   assert.equal(stories[2].cluster, 'c');
   assert.equal(stories[0].coverage, 2);
+});
+
+test('Chinese wording for alerts and quake locations', () => {
+  const zh = createZh(JSON.parse(readFileSync(new URL('../scripts/data/gazetteer.json', import.meta.url), 'utf8')));
+  assert.equal(zh.quakePlace('121 km SSW of Kokopo, Papua New Guinea'), '巴布亚新几内亚 Kokopo 西南偏南 121 公里');
+  assert.equal(zh.quakePlace('22 km W of Tamarindo, Costa Rica'), '哥斯达黎加 Tamarindo 以西 22 公里');
+  assert.equal(zh.quakePlace('central Mid-Atlantic Ridge'), '大西洋中脊中部');
+  assert.equal(zh.quakePlace('southeast of Easter Island'), '复活节岛东南方');
+  assert.equal(zh.quakePlace('Fiji region'), '斐济地区');
+  const storm = zh.hazard({
+    source: 'gdacs', type: 'storm', alert: 'orange', country: 'United States',
+    title: 'Orange notification for tropical cyclone ISAIAS-26. Population affected by Category 1 (120 km/h) wind speeds or higher is 0.567 million .',
+    summary: 'From 06/10/2026 to 11/10/2026, a Tropical Depression (maximum wind speed of 194 km/h) ISAIAS-26 was active in Atlantic. The cyclone affects these countries: United States (vulnerability Low).',
+    severity: 'Tropical Depression (maximum wind speed of 37 km/h)',
+    population: 'Population affected by Category 1 (120 km/h) wind speeds or higher is 0.567 million',
+  });
+  assert.equal(storm.title, '热带气旋 · ISAIAS-26：美国');
+  assert.equal(storm.severity, '热带低压（最大风速 37 km/h）');
+  assert.equal(storm.population, '56.7 万人受 1 级（120 km/h）以上风力影响');
+  assert.match(storm.summary, /^2026年10月6日至2026年10月11日，热带低压 ISAIAS-26（最大风速 194 km\/h）在大西洋活动，影响：美国。$/);
+  const drought = zh.hazard({ source: 'gdacs', type: 'drought', alert: 'orange', title: 'Drought is on going in X', country: 'The Bahamas, Bosnia & Herzegovina, México, Türkiye', population: '0' });
+  assert.equal(drought.title, '干旱：巴哈马、波黑、墨西哥 等 4 国');
+  assert.equal(drought.country, '巴哈马、波黑、墨西哥、土耳其');
+  assert.equal(drought.population, '');
+  assert.equal(zh.hazard({ source: 'eonet', type: 'fire', title: 'Wildfire CYRUS, Kern, California' }).title, '山火 CYRUS（加利福尼亚 Kern）');
+  assert.equal(zh.hazard({ source: 'eonet', type: 'storm', title: 'Typhoon Koguma', severity: '50 kts' }).severity, '风速 50 节（约 93 km/h）');
 });
