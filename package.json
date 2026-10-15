@@ -1,0 +1,27 @@
+{
+  "name": "worldnews",
+  "version": "1.0.0",
+  "private": true,
+  "description": "全球态势 · 实时世界新闻 3D 地球",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-site.mjs",
+    "dev": "node scripts/build-site.mjs --serve",
+    "data": "node scripts/fetch-data.mjs",
+    "data:sample": "node test/make-fixtures.mjs && node scripts/fetch-data.mjs --fixtures test/fixtures",
+    "pretest": "node test/make-fixtures.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "fast-xml-parser": "5.11.2"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "globe.gl": "2.46.2",
+    "satellite.js": "7.1.0",
+    "three": "0.180.0"
+  }
+}

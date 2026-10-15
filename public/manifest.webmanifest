@@ -1,0 +1,10 @@
+{
+  "name": "全球脉动 · World Pulse",
+  "short_name": "全球脉动",
+  "description": "实时 3D 地球新闻态势 · Live 3D globe of world news",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#020409",
+  "theme_color": "#020409",
+  "icons": [{ "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

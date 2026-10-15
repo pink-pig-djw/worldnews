@@ -1,0 +1,76 @@
+name: Update news & deploy site
+
+on:
+  push:
+    branches: ["**"]
+  schedule:
+    - cron: "*/20 * * * *" # every 20 min (GitHub may delay scheduled runs at busy times)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Restore previous run (rolling 48 h window)
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/state
+          key: wp-state-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            wp-state-${{ github.ref_name }}-
+            wp-state-
+
+      - name: Build site
+        run: npm run build
+
+      - name: Fetch news, hazards and satellite orbits
+        run: |
+          # fall back to the currently published file when the cache is empty
+          export PREV_DATA_URL="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/data/latest.json"
+          node scripts/fetch-data.mjs --out dist/data --prev .cache/state/latest.json
+
+      - name: Keep this run's data for the next run
+        run: mkdir -p .cache/state && cp dist/data/latest.json .cache/state/latest.json
+
+      - uses: actions/cache/save@v4
+        with:
+          path: .cache/state
+          key: wp-state-${{ github.ref_name }}-${{ github.run_id }}
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    # Only the default branch publishes (scheduled runs always use it); other branches just build and test.
+    if: github.event_name == 'schedule' || github.ref_name == github.event.repository.default_branch
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
