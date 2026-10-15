@@ -29,8 +29,13 @@ export const HAZARD_COLOR = { red: '#ff3b47', orange: '#ff9a3c', green: '#3fd28a
 export const QUAKE_COLOR = '#ffb02e';
 
 export const DATA_URL = 'data/latest.json';
-export const REFRESH_MS = 5 * 60 * 1000;
+// Tiny file written next to latest.json on every pipeline run; polled to detect new data cheaply.
+export const STATUS_URL = 'data/status.json';
+export const POLL_MS = 60 * 1000;
+export const HIDDEN_POLL_MS = 5 * 60 * 1000; // background tabs check less often
 export const LIVE_QUAKES_URL = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_day.geojson';
+// a report counts as "new" for this long after it first appeared
+export const FRESH_S = 20 * 60;
 
 export const TIME_WINDOWS = [6, 12, 24, 48];
 

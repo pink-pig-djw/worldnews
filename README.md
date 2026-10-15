@@ -12,31 +12,34 @@ A live 3D globe of world news — tap any hotspot to zoom in and read the latest
 | 点击即放大 | 点击标记 → 镜头飞近；邻近热点按缩放级别**自动聚合/拆分**，聚合点再点一次继续放大；详情面板列出报道、来源数、48 小时趋势、相关国家 |
 | 国家视图 | 点击任意国家查看在该国发生及涉及该国的全部报道 |
 | 关系弧线 | 同一条新闻中同时出现的国家之间画出动态弧线（如“美国 → 伊朗”） |
-| 自然灾害 | USGS 地震（M4.5+，浏览器端每 5 分钟直连更新）、GDACS 灾害预警（红/橙/绿）、NASA EONET 风暴轨迹、山火、火山 |
+| 实时更新 | 服务器每 5 分钟抓取一次；网页每分钟自动检查，有新数据就**无刷新载入**：新报道所在地闪光并标上“新”，顶部弹出可点击的提示，后台标签页标题显示新增条数；正在阅读的列表和详情保持原位置 |
+| 自然灾害 | USGS 地震（M4.5+，浏览器端**每分钟**直连更新）、GDACS 灾害预警（红/橙/绿）、NASA EONET 风暴轨迹、山火、火山 |
 | 空间站 | 由 CelesTrak 轨道根数用 SGP4 实时推算国际空间站与天宫空间站位置及星下点轨迹 |
 | 其他 | 热点排行与升/降温趋势、滚动快讯、全局搜索、热点自动巡览、中/英双语、写实/暗夜两种地球风格、图层开关、可分享链接、手机底部抽屉 + 桌面侧栏双布局 |
 
 ## 工作原理
 
 ```
-GitHub Actions（每 20 分钟）
+GitHub Actions（每 5 分钟）
   ├─ scripts/fetch-data.mjs   抓取 RSS / USGS / GDACS / EONET / CelesTrak
   │    ├─ lib/geo.mjs         基于 Natural Earth 的中英文地名库（约 5300 个地点）做地名识别与定位
   │    ├─ lib/classify.mjs    关键词规则分类 + 伤亡人数识别 → 严重度
   │    └─ lib/cluster.mjs     合并不同媒体对同一事件的报道
   ├─ scripts/build-site.mjs   esbuild 打包前端（three.js + globe.gl）
-  └─ 发布到 GitHub Pages（data/latest.json 为滚动 48 小时数据）
+  └─ 发布到 GitHub Pages（data/latest.json 为滚动 48 小时数据，data/status.json 为版本号）
 浏览器
-  └─ 每 5 分钟拉取最新数据；地震数据直连 USGS；空间站位置每秒本地推算
+  ├─ 每分钟请求很小的 status.json，版本变化时才下载 latest.json（带版本号的网址，可被 CDN 缓存）
+  ├─ 地震每分钟直连 USGS
+  └─ 空间站位置、昼夜晨昏线每秒本地推算
 ```
 
 ## 部署（一次性设置）
 
 1. 打开仓库 **Settings → Pages → Build and deployment → Source**，选择 **GitHub Actions**。
-2. 打开 **Actions → Update news & deploy site → Run workflow**（之后会每 20 分钟自动运行）。
+2. 打开 **Actions → Update news & deploy site → Run workflow**（之后会每 5 分钟自动运行）。
 3. 网址为 `https://<用户名>.github.io/<仓库名>/`，本仓库即 `https://pink-pig-djw.github.io/worldnews/`。
 
-> 只有默认分支会发布到 Pages；其他分支只做构建和测试。GitHub 在公开仓库 60 天没有提交时会暂停定时任务，届时到 Actions 页面重新启用即可。
+> 只有默认分支会发布到 Pages；其他分支只做构建和测试。GitHub 会暂停 60 天没有提交的公开仓库的定时任务，工作流每天会自动续期一次；如果仍被暂停，到 Actions 页面点 **Enable workflow** 即可。公开仓库使用 GitHub Actions 免费。
 
 ## 本地开发
 
@@ -68,8 +71,8 @@ npm test             # 定位 / 分类 / 解析 / 聚合 单元测试
 - 地点识别与分类基于关键词规则，可能出错（例如人名与地名重名）；请以“阅读原文”的原始报道为准。
 - 只展示标题、摘要和原文链接，版权归各媒体所有；部分网站在某些地区可能无法打开。
 - 国界采用 Natural Earth 的实际控制线数据，克里米亚按联合国大会第 68/262 号决议标注为乌克兰。
-- GitHub 定时任务在高峰期可能延迟数分钟到数十分钟。
+- “实时”的上限取决于各媒体 RSS 的更新速度（通常比网站首页晚几分钟）和 GitHub 定时任务：后者在高峰期可能推迟数分钟到数十分钟。地震和空间站不受影响。
 
 ## English summary
 
-Static site + scheduled GitHub Action. The Action pulls ~20 RSS feeds plus USGS/GDACS/EONET/CelesTrak, geolocates headlines with a bilingual Natural-Earth gazetteer, classifies them with transparent keyword rules, clusters multi-outlet coverage and publishes `data/latest.json` with the esbuild-bundled three.js/globe.gl front-end to GitHub Pages. Enable Pages with *Source: GitHub Actions*, then run the workflow.
+Static site + scheduled GitHub Action. Every 5 minutes the Action pulls ~20 RSS feeds plus USGS/GDACS/EONET/CelesTrak, geolocates headlines with a bilingual Natural-Earth gazetteer, classifies them with transparent keyword rules, clusters multi-outlet coverage and publishes `data/latest.json` with the esbuild-bundled three.js/globe.gl front-end to GitHub Pages. Open pages check the tiny `data/status.json` every minute and load new data in place (new reports flash on the globe and are tagged NEW); earthquakes come straight from USGS every minute. Enable Pages with *Source: GitHub Actions*, then run the workflow.

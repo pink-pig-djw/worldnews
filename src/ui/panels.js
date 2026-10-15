@@ -37,7 +37,7 @@ export function storyHtml(s, store, { others = [], showPlace = false } = {}) {
   const img = s.image ? `<img class="story-img" src="${safeUrl(s.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : '';
   return `<article class="story" data-story="${esc(s.id)}">
     <div class="story-main">
-      <div class="story-meta">${catTag(s)}${sevBars(s)}<span class="src">${esc(sourceName(store, s.source))}</span><span>${esc(timeAgo(s.time, now))}${place}</span></div>
+      <div class="story-meta">${s.fresh ? `<span class="new-badge">${esc(t().newBadge)}</span>` : ''}${catTag(s)}${sevBars(s)}<span class="src">${esc(sourceName(store, s.source))}</span><span>${esc(timeAgo(s.time, now))}${place}</span></div>
       <a class="story-title" href="${safeUrl(s.url)}" target="_blank" rel="noopener noreferrer" lang="${s.lang === 'zh' ? 'zh-CN' : 'en'}">${esc(s.title)}</a>
       ${s.summary ? `<p class="story-sum" lang="${s.lang === 'zh' ? 'zh-CN' : 'en'}">${esc(s.summary)}</p>` : ''}
       <div class="story-foot">

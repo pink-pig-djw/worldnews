@@ -12,10 +12,19 @@ export function fmtTime(sec, opts = {}) {
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', ...opts });
 }
 
-export function toast(msg, ms = 2600) {
+/** Short notice under the top bar; with `onClick` it becomes a link (e.g. to a new report). */
+export function toast(msg, ms = 2600, { onClick = null, live = false } = {}) {
   const el = $('#toast');
   el.textContent = msg;
   el.classList.add('show');
+  el.classList.toggle('clickable', Boolean(onClick));
+  el.classList.toggle('is-live', live);
+  el.onclick = onClick
+    ? () => {
+        el.classList.remove('show');
+        onClick();
+      }
+    : null;
   clearTimeout(toast._t);
   toast._t = setTimeout(() => el.classList.remove('show'), ms);
 }

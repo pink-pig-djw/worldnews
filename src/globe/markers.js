@@ -70,9 +70,10 @@ export function createMarkerLayer(view, root, handlers) {
         host.count += p.count;
         host.latest = Math.max(host.latest, p.latest);
         host.maxSev = Math.max(host.maxSev, p.maxSev);
+        host.fresh += p.fresh || 0;
         for (const [k, v] of Object.entries(p.cats)) host.cats[k] = (host.cats[k] || 0) + v;
       } else {
-        clusters.push({ key: `p:${p.id}`, lat: p.lat, lng: p.lng, lead: p, places: [p], score: p.score, count: p.count, latest: p.latest, maxSev: p.maxSev, cats: { ...p.cats } });
+        clusters.push({ key: `p:${p.id}`, lat: p.lat, lng: p.lng, lead: p, places: [p], score: p.score, count: p.count, latest: p.latest, maxSev: p.maxSev, fresh: p.fresh || 0, cats: { ...p.cats } });
       }
     }
     for (const c of clusters) c.topCat = Object.entries(c.cats).sort((a, b) => b[1] - a[1])[0][0];
@@ -112,16 +113,19 @@ export function createMarkerLayer(view, root, handlers) {
     el.classList.toggle('is-fresh', fresh);
     el.classList.toggle('is-severe', c.maxSev >= 0.7);
     el.classList.toggle('is-multi', c.places.length > 1);
+    // reports that arrived in the last few minutes get a "new" tag and a brighter pulse
+    const isNew = c.fresh > 0;
+    el.classList.toggle('is-new', isNew);
     const name = esc(placeName(c.lead));
     const more = c.places.length > 1 ? ` +${c.places.length - 1}` : '';
     el.setAttribute('aria-label', `${placeName(c.lead)}${more} · ${t().reports(c.count)}`);
-    const sig = `${size}|${c.count}|${iconName}|${color}|${name}${more}|${fresh}`;
+    const sig = `${size}|${c.count}|${iconName}|${color}|${name}${more}|${fresh}|${isNew}|${t().newBadge}`;
     if (el.__sig === sig) return;
     el.__sig = sig;
     el.__lw = null;
     el.innerHTML = `<span class="mk-halo"></span><span class="mk-core">${size >= 19 ? icon(iconName, Math.round(size * 0.52)) : ''}</span>${
       c.count > 1 && !minor ? `<span class="mk-count">${c.count > 99 ? '99+' : c.count}</span>` : ''
-    }<span class="mk-label"><b>${name}</b>${more ? `<i>${more}</i>` : ''}</span>`;
+    }${isNew ? `<span class="mk-new">${esc(t().newBadge)}</span>` : ''}<span class="mk-label"><b>${name}</b>${more ? `<i>${more}</i>` : ''}</span>`;
   }
 
   function quakeEl(q) {

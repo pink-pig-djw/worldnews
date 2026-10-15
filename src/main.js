@@ -1,11 +1,12 @@
 import './styles/main.css';
-import { CAT, CATEGORIES, DATA_URL, HAZARD_COLOR, isMobile, LIVE_QUAKES_URL, QUAKE_COLOR, REFRESH_MS, SUB_ICON } from './config.js';
+import { CAT, CATEGORIES, DATA_URL, HAZARD_COLOR, HIDDEN_POLL_MS, isMobile, LIVE_QUAKES_URL, POLL_MS, QUAKE_COLOR, STATUS_URL, SUB_ICON } from './config.js';
 import { getLang, setLang, t, timeAgo } from './i18n.js';
 import { allCountries, countryInfo, countryName, flag, isRealCc, placeName, store } from './data/store.js';
 import { createGlobeView, hexToRgba } from './globe/globe.js';
 import { createMarkerLayer } from './globe/markers.js';
 import { createSatellites } from './globe/satellites.js';
 import { $, $$, esc, toast } from './ui/dom.js';
+import { normalizeUsgs } from '../scripts/lib/usgs.mjs';
 import { icon } from './ui/icons.js';
 import { feedTab, hazardsTab, hotTab, settingsTab } from './ui/lists.js';
 import { clusterDetail, countryDetail, hazardDetail, placeDetail, quakeDetail, satDetail, satKv, storyHtml } from './ui/panels.js';
@@ -41,10 +42,12 @@ setLang(settings.lang);
 // ---------------------------------------------------------------- shell
 const app = $('#app');
 const ui = { tab: isMobile() ? 'map' : 'feed', sort: 'important', current: null, tour: null };
+// live-update bookkeeping (see "live updates" below)
+const live = { lastCheck: 0, lastFull: 0, pending: null, staleVersion: null, quakeTry: 0, quakesAt: 0, quakes: [], quakesPrimed: false, flashes: [], flashTimer: 0, unseen: 0 };
 
 function applyStaticText() {
   for (const el of $$('[data-i18n]')) el.textContent = t()[el.dataset.i18n];
-  document.title = `${t().brand} · ${t().brandSub}`;
+  updateTitle();
   $('#search-btn').innerHTML = icon('search', 19);
   $('#search-btn').title = t().searchPh;
   $('#tour-btn').innerHTML = icon(ui.tour ? 'pause' : 'play', 18);
@@ -116,6 +119,12 @@ $('#cat-chips').addEventListener('click', (e) => {
   store.setFilter({ cats: next });
 });
 
+// tab title, with the number of reports that arrived while the tab was in the background
+function updateTitle() {
+  const base = `${t().brand} · ${t().brandSub}`;
+  document.title = live.unseen ? `(${live.unseen}) ${base}` : base;
+}
+
 // clock
 function tickClock() {
   const d = new Date();
@@ -124,7 +133,7 @@ function tickClock() {
   if (store.raw) {
     const gen = Date.parse(store.raw.generated) / 1000;
     $('#updated').textContent = t().updated(timeAgo(gen));
-    $('#live-dot').className = `live-dot${ui.loadFailed ? ' down' : Date.now() / 1000 - gen > 75 * 60 ? ' stale' : ''}`;
+    $('#live-dot').className = `live-dot${ui.loadFailed ? ' down' : Date.now() / 1000 - gen > 60 * 60 ? ' stale' : ''}`;
   }
 }
 setInterval(tickClock, 1000);
@@ -279,6 +288,10 @@ function renderRings() {
       for (const q of visibleQuakes()) if (q.mag >= 5.5 && now - q.time < 86400) rings.push({ lat: q.lat, lng: q.lng, color: QUAKE_COLOR, maxR: (q.mag - 4) * 1.6 * zs, speed: 2.2 * zs, period: 1700, alpha: 0.8 });
     }
   }
+  // bursts of light where reports (or quakes) just came in
+  const nowMs = Date.now();
+  live.flashes = live.flashes.filter((f) => f.until > nowMs);
+  for (const f of live.flashes) rings.push({ lat: f.lat, lng: f.lng, color: f.color, maxR: 6 * zs, speed: 7 * zs, period: 850, alpha: 1 });
   const cur = ui.current;
   if (cur?.lat != null) rings.push({ lat: cur.lat, lng: cur.lng, color: '#e6f6ff', maxR: 2.6 * zs, speed: 2.6 * zs, period: 1100, alpha: 0.95 });
   view.setRings(rings);
@@ -311,17 +324,37 @@ function renderPaths() {
 function renderSide() {
   const tab = ui.tab === 'map' ? 'feed' : ui.tab;
   const body = $('#side-body');
-  const keep = body.scrollTop;
   if (!store.raw) {
     body.innerHTML = `<div class="empty">${esc(t().loading)}</div>`;
     return;
   }
-  if (tab === 'feed') body.innerHTML = feedTab(store, ui);
-  else if (tab === 'hot') body.innerHTML = hotTab(store);
-  else if (tab === 'hazards') body.innerHTML = hazardsTab(store, satellites.positions());
-  else if (tab === 'settings') body.innerHTML = settingsTab(store, settings);
-  if (ui.lastSideTab === tab) body.scrollTop = keep;
+  const html =
+    tab === 'feed' ? feedTab(store, ui) : tab === 'hot' ? hotTab(store) : tab === 'hazards' ? hazardsTab(store, satellites.positions()) : settingsTab(store, settings);
+  if (ui.lastSideTab === tab) keepReadingPosition(body, () => (body.innerHTML = html));
+  else {
+    body.innerHTML = html;
+    body.scrollTop = 0;
+  }
   ui.lastSideTab = tab;
+}
+
+/**
+ * Re-render a scrolling list without moving what the reader is looking at: the first visible row or
+ * story stays put even when new items are inserted above it.
+ */
+function keepReadingPosition(box, render) {
+  const keep = box.scrollTop;
+  const top = box.getBoundingClientRect().top;
+  const items = () => box.querySelectorAll('.row, .story, .place-row');
+  const keyOf = (el) => el.dataset.story || el.dataset.id || el.dataset.cc;
+  const anchor = keep > 0 ? [...items()].find((el) => el.getBoundingClientRect().bottom > top + 1 && keyOf(el)) : null;
+  const key = anchor && keyOf(anchor);
+  const offset = anchor ? anchor.getBoundingClientRect().top - top : 0;
+  render();
+  box.scrollTop = keep;
+  if (!key) return;
+  const again = [...items()].find((el) => keyOf(el) === key);
+  if (again) box.scrollTop += again.getBoundingClientRect().top - top - offset;
 }
 
 $('#tabbar').addEventListener('click', (e) => {
@@ -396,18 +429,57 @@ const detail = $('#detail');
 const detailHead = $('#detail-head');
 const detailBody = $('#detail-body');
 
-function openDetail(html) {
+function openDetail(html, keep = false) {
+  const refresh = keep && !detail.hidden;
   detail.hidden = false;
   // the header lives outside the scroll area so it stays put while the stories scroll
   const tpl = document.createElement('template');
   tpl.innerHTML = html;
   const head = tpl.content.querySelector('.d-head');
-  detailHead.replaceChildren(...(head ? [head] : []));
-  detailBody.replaceChildren(tpl.content);
-  detailBody.scrollTop = 0;
+  const swap = () => {
+    detailHead.replaceChildren(...(head ? [head] : []));
+    detailBody.replaceChildren(tpl.content);
+  };
+  if (refresh) {
+    // live refresh of the open panel: keep the reader's place, opened lists and translations
+    const state = storyState(detailBody);
+    keepReadingPosition(detailBody, () => {
+      swap();
+      restoreStoryState(detailBody, state);
+    });
+  } else {
+    swap();
+    detailBody.scrollTop = 0;
+  }
   app.classList.add('has-detail');
   view.setAutoRotate(false);
   updateOffset();
+}
+
+function storyState(box) {
+  const open = new Set();
+  const translated = new Map();
+  for (const a of box.querySelectorAll('[data-story]')) {
+    if (a.querySelector('.others-list:not([hidden])')) open.add(a.dataset.story);
+    if (a.querySelector('[data-action="translate"][data-done]'))
+      translated.set(a.dataset.story, { title: a.querySelector('.story-title')?.textContent, sum: a.querySelector('.story-sum')?.textContent });
+  }
+  return { open, translated };
+}
+
+function restoreStoryState(box, { open, translated }) {
+  for (const a of box.querySelectorAll('[data-story]')) {
+    const id = a.dataset.story;
+    if (open.has(id)) a.querySelector('.others-list')?.removeAttribute('hidden');
+    const tr = translated.get(id);
+    const btn = tr && a.querySelector('[data-action="translate"]');
+    if (!btn) continue;
+    a.querySelector('.story-title').textContent = tr.title;
+    const sum = a.querySelector('.story-sum');
+    if (sum && tr.sum != null) sum.textContent = tr.sum;
+    btn.innerHTML = `${icon('translate', 13)}${esc(t().showOriginal)}`;
+    btn.dataset.done = '1';
+  }
 }
 
 function closeDetail() {
@@ -455,7 +527,7 @@ function selectPlace(place, { storyId = null, fromTour = false } = {}) {
 
 function selectCluster(cluster) {
   stopTour();
-  ui.current = { type: 'cluster', key: cluster.key, lat: cluster.lat, lng: cluster.lng };
+  ui.current = { type: 'cluster', key: cluster.key, lat: cluster.lat, lng: cluster.lng, placeIds: cluster.places.map((p) => p.id) };
   markers.select({ place: cluster.lead.id });
   // zoom in far enough for the cluster to split into its places
   fly(cluster.lat, cluster.lng, Math.max(0.3, view.altitude * 0.42));
@@ -534,26 +606,32 @@ function highlightStory(id) {
   });
 }
 
+/** Re-render the open panel for new data, filters or language, keeping the reader's place. */
 function reopenCurrent() {
   const c = ui.current;
   if (!c) return;
   const v = store.view;
   if (c.type === 'place') {
     const p = v.placeById.get(c.id);
-    p ? openDetail(placeDetail(p, store)) : closeDetail();
-  } else if (c.type === 'country') openDetail(countryDetail(c.cc, store));
+    p ? openDetail(placeDetail(p, store), true) : closeDetail();
+  } else if (c.type === 'country') openDetail(countryDetail(c.cc, store), true);
   else if (c.type === 'quake') {
     const q = (store.raw.quakes || []).find((x) => x.id === c.id);
-    if (q) openDetail(quakeDetail(q, store));
+    if (q) openDetail(quakeDetail(q, store), true);
   } else if (c.type === 'hazard') {
     const h = (store.raw.hazards || []).find((x) => x.id === c.id);
-    if (h) openDetail(hazardDetail(h, store));
+    if (h) openDetail(hazardDetail(h, store), true);
   } else if (c.type === 'cluster') {
-    const cl = markers.clusters().find((x) => x.key === c.key);
-    cl ? openDetail(clusterDetail(cl, store)) : closeDetail();
+    const places = (c.placeIds || []).map((id) => v.placeById.get(id)).filter(Boolean).sort((a, b) => b.score - a.score);
+    const cl = markers.clusters().find((x) => x.key === c.key) || (places.length > 1 ? { key: c.key, lat: c.lat, lng: c.lng, lead: places[0], places } : null);
+    if (cl) openDetail(clusterDetail(cl, store), true);
+    else if (places.length) {
+      ui.current = { type: 'place', id: places[0].id, lat: places[0].lat, lng: places[0].lng };
+      openDetail(placeDetail(places[0], store), true);
+    } else closeDetail();
   } else if (c.type === 'sat') {
     const pos = satellites.positions().find((s) => s.id === c.id);
-    if (pos) openDetail(satDetail(pos));
+    if (pos) openDetail(satDetail(pos), true);
   }
 }
 
@@ -706,10 +784,13 @@ setInterval(() => {
   const cur = els[tickerIdx];
   tickerIdx = (tickerIdx + 1) % els.length;
   const next = els[tickerIdx];
-  cur.className = 'ticker-item above';
+  // park the next item below without animating, force a style flush, then slide both
+  next.style.transition = 'none';
   next.className = 'ticker-item below';
-  requestAnimationFrame(() => requestAnimationFrame(() => (next.className = 'ticker-item in')));
-  setTimeout(() => cur.className !== 'ticker-item in' && (cur.className = 'ticker-item below'), 600);
+  void next.offsetWidth;
+  next.style.transition = '';
+  next.className = 'ticker-item in';
+  cur.className = 'ticker-item above';
 }, 6000);
 $('#ticker').addEventListener('click', () => {
   const s = tickerItems[tickerIdx];
@@ -819,6 +900,13 @@ $('#status-btn').addEventListener('click', () => {
     <div class="lg-row">${icon('clock', 15)} ${esc(new Date(raw.generated).toLocaleString())}</div>
     <div class="lg-row">${icon('news', 15)} ${esc(t().reports(raw.stories.length))} · ${esc(t().sources(ok))}/${raw.sources.length}</div>
     <div class="lg-row">${icon('quake', 15)} ${raw.quakes.length} · ${icon('alert', 15)} ${raw.hazards.length}</div>
+    <div class="lg-live">
+      <div class="lg-row"><b>${esc(t().liveTitle)}</b></div>
+      <div class="lg-row">${icon('refresh', 14)}<span>${esc(t().liveServer)}</span></div>
+      <div class="lg-row">${icon('wifi', 14)}<span>${esc(t().liveClient(timeAgo(live.lastCheck / 1000)))}</span></div>
+      <div class="lg-row">${icon('quake', 14)}<span>${esc(t().liveQuakes(live.quakesAt ? timeAgo(live.quakesAt / 1000) : '—'))}</span></div>
+      <div class="lg-row">${icon('satellite', 14)}<span>${esc(t().liveSky)}</span></div>
+    </div>
     <div class="lg-note">${raw.sources
       .map((s) => `<span style="color:${s.ok ? 'var(--live)' : 'var(--danger)'}">${s.ok ? '●' : '○'}</span> ${esc(getLang() === 'zh' ? s.zh || s.name : s.name)}`)
       .join('<br>')}</div>`;
@@ -886,59 +974,164 @@ function openFromHash() {
   return Boolean(ui.current);
 }
 
-// ---------------------------------------------------------------- data loading
+// ---------------------------------------------------------------- data loading & live updates
+// The pipeline republishes data/latest.json every ~5 minutes. Every minute the page fetches the tiny
+// status.json under a new URL (so neither the browser nor the Pages CDN can answer from cache) and
+// downloads the full file only when its timestamp changed, under a versioned URL that caches well.
 store.on((reason) => {
   renderChips();
   renderLayers();
   renderSide();
   renderTicker(reason === 'data');
-  if (ui.current && reason === 'filter') reopenCurrent();
+  if (ui.current) reopenCurrent();
 });
 
-async function loadData(initial) {
+async function getJson(url, cache = 'no-store') {
+  const res = await fetch(url, { cache });
+  if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
+  return res.json();
+}
+const fetchStatus = () => getJson(`${STATUS_URL}?t=${Math.floor(Date.now() / 15000)}`).catch(() => null);
+const versioned = (version) => `${DATA_URL}?v=${encodeURIComponent(version)}`;
+
+/** First load: the preloaded file (see index.html) and status.json in parallel; if the preloaded copy
+ *  came from a cache and is older than status.json says, fetch the current version right away. */
+async function loadInitial() {
   try {
-    const res = await fetch(`${DATA_URL}?t=${Math.floor(Date.now() / 60000)}`, { cache: 'no-cache' });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const raw = await res.json();
+    const [status, cached] = await Promise.all([fetchStatus(), getJson(DATA_URL, 'default').catch(() => null)]);
+    let raw = cached;
+    if (status?.generated && raw?.generated !== status.generated) raw = (await getJson(versioned(status.generated), 'default').catch(() => null)) || raw;
+    if (!raw) throw new Error('no data');
+    live.lastFull = Date.now();
     ui.loadFailed = false;
-    if (store.raw && raw.generated === store.raw.generated) return;
-    satellites = createSatellites(raw.satellites || []);
-    const added = store.setData(raw);
-    markers.setSats(satellites.positions());
-    renderPaths();
-    $('#sample-banner').hidden = !raw.sample;
-    if (!initial && added.length) toast(t().newStories(added.length));
-    if (!initial && ui.current) reopenCurrent();
+    applyData(raw, true);
   } catch (err) {
     console.error(err);
     ui.loadFailed = true;
-    if (initial) $('#loader-text').textContent = t().loadFail;
-    setTimeout(() => loadData(initial && !store.raw), 20000);
+    $('#loader-text').textContent = t().loadFail;
   } finally {
+    live.lastCheck = Date.now();
     tickClock();
   }
 }
 
+/** Minute check: download only when the server has a newer version. */
+function checkForUpdates() {
+  live.pending ||= (async () => {
+    try {
+      const status = await fetchStatus();
+      const version = status?.generated;
+      if (store.raw && version && (version === store.raw.generated || version === live.staleVersion)) {
+        ui.loadFailed = false;
+        return;
+      }
+      // without status.json (an older deploy) fall back to the full file, but at most every 5 minutes
+      if (!version && store.raw && Date.now() - live.lastFull < 5 * 60 * 1000) return;
+      const raw = await getJson(version ? versioned(version) : `${DATA_URL}?t=${Math.floor(Date.now() / 60000)}`, version ? 'default' : 'no-store');
+      live.lastFull = Date.now();
+      ui.loadFailed = false;
+      if (store.raw && raw.generated === store.raw.generated) {
+        live.staleVersion = version; // a cache answered with old data: don't re-download it every minute
+        return;
+      }
+      applyData(raw, !store.raw);
+    } catch (err) {
+      console.warn(err);
+      ui.loadFailed = true;
+    } finally {
+      live.lastCheck = Date.now();
+      live.pending = null;
+      tickClock();
+    }
+  })();
+  return live.pending;
+}
+
+function applyData(raw, initial) {
+  satellites = createSatellites(raw.satellites || []);
+  mergeQuakes(raw, live.quakes); // keep quakes read straight from USGS that this copy predates
+  const added = store.setData(raw); // re-renders map, lists and the open panel
+  markers.setSats(satellites.positions());
+  renderPaths();
+  $('#sample-banner').hidden = !raw.sample;
+  if (!initial) announce(added);
+}
+
+/** New reports: a burst of light where each one happened, a toast linking to the top one, a tab badge. */
+function announce(added) {
+  const shown = new Set(store.view.stories.map((s) => s.id));
+  const fresh = added.filter((s) => shown.has(s.id));
+  if (!fresh.length) return;
+  flash(fresh.filter((s) => s.loc).map((s) => ({ lat: s.loc.lat, lng: s.loc.lng, color: CAT[s.cat]?.color || '#fff' })));
+  const top = fresh.reduce((a, b) => (b.w > a.w ? b : a));
+  toast(`${t().newStories(fresh.length)} · ${top.title}`, 7000, { onClick: () => openStory(top.id), live: true });
+  if (document.hidden) {
+    live.unseen += fresh.length;
+    updateTitle();
+  }
+}
+
+const FLASH_MS = 20000;
+function flash(points) {
+  if (!points.length) return;
+  const until = Date.now() + FLASH_MS;
+  live.flashes = [...live.flashes, ...points.map((p) => ({ ...p, until }))].slice(-30);
+  renderRings();
+  clearTimeout(live.flashTimer);
+  live.flashTimer = setTimeout(renderRings, FLASH_MS + 200);
+}
+
+/** Merge quakes into a data set (newer copies win: USGS revises magnitudes); returns the ones it lacked. */
+function mergeQuakes(raw, list) {
+  if (!list.length) return [];
+  const byId = new Map((raw.quakes || []).map((q) => [q.id, q]));
+  const added = list.filter((q) => !byId.has(q.id));
+  for (const q of list) byId.set(q.id, q);
+  raw.quakes = [...byId.values()].sort((a, b) => b.time - a.time);
+  return added;
+}
+
 async function loadLiveQuakes() {
+  live.quakeTry = Date.now();
   try {
-    const res = await fetch(LIVE_QUAKES_URL, { cache: 'no-cache' });
-    const gj = await res.json();
-    const known = new Set((store.raw?.quakes || []).map((q) => q.id));
-    const fresh = [];
-    for (const f of gj.features || []) {
-      if (known.has(f.id) || f.properties?.type !== 'earthquake') continue;
-      const [lng, lat, depth] = f.geometry.coordinates;
-      const p = f.properties;
-      fresh.push({ id: f.id, mag: Math.round(p.mag * 10) / 10, place: p.place || '', time: Math.round(p.time / 1000), lat, lng, depth: Math.round(depth * 10) / 10, url: p.url, tsunami: p.tsunami ? 1 : 0, alert: p.alert || null });
+    const now = Date.now() / 1000;
+    live.quakes = normalizeUsgs(await getJson(LIVE_QUAKES_URL, 'no-cache'), now);
+    live.quakesAt = Date.now();
+    if (!store.raw) return;
+    const added = mergeQuakes(store.raw, live.quakes);
+    markers.setQuakes(visibleQuakes());
+    renderRings();
+    if (ui.current?.type === 'quake') reopenCurrent();
+    // the first answer only catches up with the pipeline's copy; announce what arrives after that
+    if (live.quakesPrimed && added.length) {
+      flash(added.map((q) => ({ lat: q.lat, lng: q.lng, color: QUAKE_COLOR })));
+      const big = added.reduce((a, b) => (b.mag > a.mag ? b : a));
+      if (big.mag >= 6) toast(t().newQuake(big.mag.toFixed(1), big.place), 8000, { onClick: () => selectQuake(big), live: true });
     }
-    if (fresh.length && store.raw) {
-      store.raw.quakes = [...fresh, ...store.raw.quakes].sort((a, b) => b.time - a.time);
-      markers.setQuakes(visibleQuakes());
-      renderRings();
-    }
+    live.quakesPrimed = true;
   } catch {
     /* USGS unreachable (e.g. network policy) – keep the pipeline's copy */
   }
+}
+
+/** One scheduler for everything live; background tabs check less often. */
+function startLiveUpdates() {
+  setInterval(() => {
+    const now = Date.now();
+    const every = !store.raw ? 20000 : document.hidden ? HIDDEN_POLL_MS : POLL_MS;
+    if (now - live.lastCheck >= every) checkForUpdates();
+    if (!document.hidden && now - live.quakeTry >= POLL_MS) loadLiveQuakes();
+    store.expireFresh();
+  }, 5000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    live.unseen = 0;
+    updateTitle();
+    if (Date.now() - live.lastCheck > 20000) checkForUpdates();
+    if (Date.now() - live.quakeTry > 20000) loadLiveQuakes();
+  });
+  addEventListener('online', () => checkForUpdates());
+  loadLiveQuakes();
 }
 
 // space stations move every second
@@ -972,7 +1165,7 @@ function initialAltitude() {
 }
 
 // handle for debugging from the console / automated checks
-window.__worldPulse = { view, store, markers, selectPlace, selectCountry };
+window.__worldPulse = { view, store, markers, selectPlace, selectCountry, checkForUpdates };
 
 async function boot() {
   applyStaticText();
@@ -984,7 +1177,7 @@ async function boot() {
   const alt = initialAltitude();
   const tzLng = -new Date().getTimezoneOffset() / 4;
   view.flyTo({ lat: 18, lng: tzLng - 60, altitude: alt * 2.8 }, 0);
-  await Promise.race([Promise.all([loadData(true), view.texturesReady]), new Promise((r) => setTimeout(r, 9000))]);
+  await Promise.race([Promise.all([loadInitial(), view.texturesReady]), new Promise((r) => setTimeout(r, 9000))]);
   applyLayerSettings();
   $('#loader').classList.add('done');
   if (!openFromHash()) {
@@ -992,8 +1185,6 @@ async function boot() {
     view.flyTo({ lat: top ? Math.max(-30, Math.min(45, top.lat)) * 0.6 + 8 : 22, lng: top ? top.lng : tzLng, altitude: alt }, 2600);
   }
   bumpIdle();
-  setInterval(() => loadData(false), REFRESH_MS);
-  loadLiveQuakes();
-  setInterval(loadLiveQuakes, REFRESH_MS);
+  startLiveUpdates();
 }
 boot();

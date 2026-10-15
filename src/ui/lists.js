@@ -29,9 +29,10 @@ export function feedTab(store, ui) {
             .map(({ lead: s, items }) => {
               const c = CAT[s.cat] || CAT.other;
               const others = new Set(items.map((i) => i.source)).size - 1;
-              return `<button class="row" data-action="story" data-id="${esc(s.id)}" style="--c:${c.color}">
+              const isNew = items.some((i) => i.fresh);
+              return `<button class="row${isNew ? ' is-new' : ''}" data-action="story" data-id="${esc(s.id)}" style="--c:${c.color}">
                 <span class="row-ico">${icon(SUB_ICON[s.sub] || c.icon, 15)}</span>
-                <span class="row-main"><span class="row-title" lang="${s.lang === 'zh' ? 'zh-CN' : 'en'}">${esc(s.title)}</span>
+                <span class="row-main"><span class="row-title" lang="${s.lang === 'zh' ? 'zh-CN' : 'en'}">${isNew ? `<span class="new-badge">${esc(t().newBadge)}</span>` : ''}${esc(s.title)}</span>
                 <span class="row-meta">${s.loc ? `<span>${flag(s.loc.cc)} ${esc(placeName(s.loc))}</span><span class="sep">·</span>` : ''}<span>${esc(srcName(store, s.source))}${others > 0 ? ` +${others}` : ''}</span><span class="sep">·</span><span>${esc(timeAgo(s.time, now))}</span></span></span>
               </button>`;
             })

@@ -98,6 +98,10 @@ a { color: inherit; }
 .mk.is-severe:not(.is-fresh) .mk-halo { animation: halo 3.4s cubic-bezier(0.2, 0.6, 0.3, 1) infinite; }
 @keyframes halo { 0% { scale: 1; opacity: 0.85; } 100% { scale: 2.9; opacity: 0; } }
 .mk-count { position: absolute; left: calc(var(--s) * 0.28); top: calc(var(--s) * -0.66); min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: #0a0f1c; color: #fff; font: 700 10px/15px var(--font); text-align: center; border: 1px solid color-mix(in srgb, var(--c) 70%, #fff 10%); font-variant-numeric: tabular-nums; pointer-events: none; }
+.mk-new { position: absolute; right: calc(var(--s) * 0.3); top: calc(var(--s) * -0.68); height: 15px; padding: 0 5px; border-radius: 8px; background: #fff; color: #07101d; font: 800 9.5px/15px var(--font); letter-spacing: 0.03em; white-space: nowrap; pointer-events: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--c) 70%, transparent), 0 0 12px 2px rgba(255, 255, 255, 0.55); animation: pop 0.4s cubic-bezier(0.2, 1.4, 0.4, 1) both, newglow 1.8s ease-in-out 0.4s infinite; }
+@keyframes newglow { 50% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--c) 70%, transparent), 0 0 20px 5px rgba(255, 255, 255, 0.8); } }
+.mk.is-new .mk-halo { border-color: #fff; animation: halo 1.5s cubic-bezier(0.2, 0.6, 0.3, 1) infinite; }
+.mk.is-minor .mk-new { right: 2px; top: -19px; }
 .mk-label { position: absolute; left: calc(var(--s) / 2 + 7px); top: 0; translate: 0 -50%; white-space: nowrap; padding: 4px 9px; border-radius: 9px; background: rgba(5, 9, 17, 0.74); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); border: 1px solid rgba(255, 255, 255, 0.1); border-left: 2px solid var(--c); color: var(--text); font: 600 12px/1.15 var(--font); opacity: 0; transition: opacity 0.25s; pointer-events: none; }
 .mk-label i { font-style: normal; color: var(--muted); margin-left: 3px; font-weight: 500; }
 .mk.show-label .mk-label { opacity: 1; }
@@ -141,6 +145,9 @@ html[lang="zh-CN"] .country-label { letter-spacing: 0.22em; font-size: 11px; fon
 .row-title { font-size: 14px; line-height: 1.38; font-weight: 600; color: var(--text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .row-meta { margin-top: 4px; font-size: 11.5px; color: var(--muted); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .row-meta .sep { opacity: 0.5; }
+.new-badge { display: inline-block; vertical-align: 1px; margin-right: 6px; padding: 0 5px; border-radius: 5px; background: var(--live); color: #04140b; font: 800 10px/16px var(--font); letter-spacing: 0.03em; }
+.story-meta .new-badge { margin-right: 0; }
+.row.is-new { background: linear-gradient(90deg, rgba(62, 224, 143, 0.1), transparent 60%); }
 .badge { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: 6px; font-size: 10.5px; font-weight: 700; color: var(--c, var(--text-2)); background: color-mix(in srgb, var(--c, #fff) 13%, transparent); border: 1px solid color-mix(in srgb, var(--c, #fff) 22%, transparent); white-space: nowrap; }
 .rank { font: 700 13px/30px var(--mono); color: var(--faint); width: 22px; text-align: right; flex: none; }
 .bar { display: block; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.06); margin-top: 7px; overflow: hidden; }
@@ -277,8 +284,16 @@ html[lang="zh-CN"] .country-label { letter-spacing: 0.22em; font-size: 11px; fon
 .tooltip .tt-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
 .tooltip .tt-title { color: var(--text-2); }
 .float-tooltip-kap { background: rgba(8, 12, 20, 0.88) !important; border: 1px solid var(--glass-border); border-radius: 10px !important; padding: 7px 10px !important; font: 12.5px var(--font) !important; color: var(--text) !important; }
-.toast { position: absolute; z-index: 90; left: 50%; top: calc(var(--top-h) + 20px + var(--safe-t)); translate: -50% -12px; opacity: 0; pointer-events: none; transition: all 0.3s; padding: 10px 16px; border-radius: 12px; font-size: 13px; font-weight: 600; background: rgba(12, 18, 30, 0.92); border: 1px solid var(--glass-border); box-shadow: var(--shadow); white-space: nowrap; }
+.toast { position: absolute; z-index: 90; left: 50%; top: calc(var(--top-h) + 62px + var(--safe-t)); translate: -50% -12px; opacity: 0; pointer-events: none; transition: all 0.3s; padding: 10px 16px; border-radius: 12px; font-size: 13px; font-weight: 600; background: rgba(12, 18, 30, 0.92); border: 1px solid var(--glass-border); box-shadow: var(--shadow); white-space: nowrap; }
 .toast.show { opacity: 1; translate: -50% 0; }
+.toast { max-width: min(92vw, 560px); overflow: hidden; text-overflow: ellipsis; }
+.toast.show.clickable { pointer-events: auto; cursor: pointer; }
+.toast.clickable::after { content: "›"; margin-left: 8px; color: var(--accent); font-weight: 800; }
+.toast.is-live { border-color: color-mix(in srgb, var(--live) 45%, transparent); }
+.toast.is-live::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 8px; vertical-align: 1px; border-radius: 50%; background: var(--live); box-shadow: 0 0 8px var(--live); }
+.lg-live { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.lg-live .lg-row { align-items: flex-start; font-size: 12px; line-height: 1.5; }
+.lg-live .lg-row .ico { flex: none; margin-top: 2px; color: var(--live); }
 .sample-banner { position: absolute; z-index: 95; left: 50%; top: calc(var(--top-h) + 58px + var(--safe-t)); translate: -50% 0; padding: 4px 12px; border-radius: 8px; background: #6b4b00; color: #ffe2a0; font-size: 12px; font-weight: 700; pointer-events: none; }
 
 /* ---------- loader ---------- */
@@ -315,6 +330,7 @@ html[lang="zh-CN"] .country-label { letter-spacing: 0.22em; font-size: 11px; fon
   .clock { display: none; }
   #legend-btn { display: none; }
   .chips { top: calc(var(--top-h) + 6px + var(--safe-t)); padding: 2px 10px 8px; }
+  .toast { top: calc(var(--top-h) + 54px + var(--safe-t)); }
   .tabbar { display: flex; }
   .ticker { left: 10px; right: 10px; bottom: calc(var(--tabbar-h) + 18px + var(--safe-b)); height: 36px; }
   .app[data-tab="map"] .sidebar { display: none; }
@@ -337,5 +353,5 @@ html[lang="zh-CN"] .country-label { letter-spacing: 0.22em; font-size: 11px; fon
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mk-halo, .live-dot, .ticker-tag::before, .mk.is-selected::after { animation: none !important; }
+  .mk-halo, .live-dot, .ticker-tag::before, .mk.is-selected::after, .mk-new { animation: none !important; }
 }

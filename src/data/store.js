@@ -1,5 +1,5 @@
 import COUNTRIES from './countries.json';
-import { CAT } from '../config.js';
+import { CAT, FRESH_S } from '../config.js';
 import { getLang } from '../i18n.js';
 
 const PSEUDO = new Set(['XS', 'XR', 'XO']);
@@ -41,6 +41,7 @@ export class Store {
     this.filters = { cats: new Set(Object.keys(CAT)), windowHours: 48, lang: 'all', disabledSources: new Set() };
     this.listeners = new Set();
     this.derived = null;
+    this.arrived = new Map(); // story id -> when it showed up while this page was open (s)
   }
 
   on(fn) {
@@ -53,13 +54,33 @@ export class Store {
     for (const fn of this.listeners) fn(reason);
   }
 
+  /** Replace the data set; returns the stories that were not in the previous one. */
   setData(raw) {
-    const prevIds = new Set((this.raw?.stories || []).map((s) => s.id));
+    const prevIds = this.raw ? new Set(this.raw.stories.map((s) => s.id)) : null;
     this.raw = raw;
     this.sourceById = new Map((raw.sources || []).map((s) => [s.id, s]));
-    const added = this.raw.stories.filter((s) => !prevIds.has(s.id));
+    const added = prevIds ? raw.stories.filter((s) => !prevIds.has(s.id)) : [];
+    const now = this.now;
+    for (const s of added) this.arrived.set(s.id, now);
+    for (const [id, at] of this.arrived) if (now - at > FRESH_S) this.arrived.delete(id);
+    // the pipeline's first-seen times; a fresh rolling store (first run, lost cache) stamps every
+    // story with the same time, which must not light up the whole map as "new"
+    this.firstSeen = Math.min(now, ...raw.stories.map((s) => s.seen || now));
     this.emit('data');
-    return prevIds.size ? added : [];
+    return added;
+  }
+
+  /** Arrived in the last FRESH_S seconds: while the page was open, or per the pipeline's first-seen time. */
+  isFresh(s, now = this.now) {
+    const at = this.arrived.get(s.id);
+    if (at && now - at < FRESH_S) return true;
+    return Boolean(s.seen) && now - s.seen < FRESH_S && s.seen - this.firstSeen > 3600 && now - s.time < 6 * 3600;
+  }
+
+  /** Time moves on: drop "new" flags that have expired (re-renders only when something changed). */
+  expireFresh() {
+    const v = this.derived;
+    if (v?.freshCount && v.stories.some((s) => s.fresh && !this.isFresh(s))) this.emit('time');
   }
 
   setFilter(patch) {
@@ -84,7 +105,10 @@ export class Store {
     const stories = (this.raw?.stories || []).filter(
       (s) => s.time >= minTime && cats.has(s.cat) && (lang === 'all' || s.lang === lang) && !disabledSources.has(s.source),
     );
-    for (const s of stories) s.w = storyWeight(s, now);
+    for (const s of stories) {
+      s.w = storyWeight(s, now);
+      s.fresh = this.isFresh(s, now);
+    }
 
     // places
     const places = new Map();
@@ -92,7 +116,7 @@ export class Store {
       if (!s.loc) continue;
       let p = places.get(s.loc.id);
       if (!p) {
-        p = { ...s.loc, stories: [], score: 0, count: 0, cats: {}, latest: 0, maxSev: 0, sources: new Set() };
+        p = { ...s.loc, stories: [], score: 0, count: 0, cats: {}, latest: 0, maxSev: 0, sources: new Set(), fresh: 0 };
         places.set(s.loc.id, p);
       }
       p.stories.push(s);
@@ -102,6 +126,7 @@ export class Store {
       p.latest = Math.max(p.latest, s.time);
       p.maxSev = Math.max(p.maxSev, s.sev);
       p.sources.add(s.source);
+      if (s.fresh) p.fresh++;
     }
     for (const p of places.values()) {
       p.topCat = Object.entries(p.cats).sort((a, b) => b[1] - a[1])[0][0];
@@ -129,8 +154,7 @@ export class Store {
     const countryList = [...countries.values()].sort((a, b) => b.score - a.score);
     // Feeds only list recent items, so a 12 h-vs-previous-12 h trend is meaningful only once the
     // rolling store has really been collecting for a day.
-    const firstSeen = Math.min(now, ...(this.raw?.stories || []).map((s) => s.seen || now));
-    const trendsReliable = now - firstSeen >= 24 * 3600;
+    const trendsReliable = now - (this.firstSeen ?? now) >= 24 * 3600;
 
     // arcs between countries mentioned together and the event location
     const arcMap = new Map();
@@ -163,7 +187,8 @@ export class Store {
     }
     const headlines = [...clusters.values()];
 
-    this.derived = { now, stories, places: placeList, placeById: places, countries: countryList, countryById: countries, arcs, headlines, trendsReliable };
+    const freshCount = stories.filter((s) => s.fresh).length;
+    this.derived = { now, stories, places: placeList, placeById: places, countries: countryList, countryById: countries, arcs, headlines, trendsReliable, freshCount };
     return this.derived;
   }
 
