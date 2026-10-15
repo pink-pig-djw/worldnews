@@ -14,7 +14,7 @@ import { createZh } from './lib/zh.mjs';
 import { mergeHazards, normalizeEonet, normalizeGdacs, normalizeUsgs, parseTle } from './lib/hazards.mjs';
 import { fetchJson, fetchText } from './lib/http.mjs';
 import { parseFeed } from './lib/rss.mjs';
-import { HAZARD_SOURCES, NEWS_SOURCES, SATELLITES, STATE_PER_COUNTRY } from './lib/sources.mjs';
+import { DEFAULT_KEEP, HAZARD_SOURCES, NEWS_SOURCES, SATELLITES, STATE_PER_COUNTRY } from './lib/sources.mjs';
 import { hashId, HOUR, mapLimit, normalizeUrl, truncate } from './lib/util.mjs';
 
 const SOURCE_BY_ID = new Map(NEWS_SOURCES.map((s) => [s.id, s]));
@@ -76,7 +76,8 @@ function toStory(item, src) {
   const zh = src.lang === 'zh';
   const mt = zh ? simplify(title) : title;
   const ms = zh ? simplify(summary) : summary;
-  const g = geo.parse(mt, ms, src.lang);
+  // local outlets: their country disambiguates place names; national feeds default to it
+  const g = geo.parse(mt, ms, src.lang, src.local ? { homeCc: src.country, homeFallback: Boolean(src.national) } : {});
   const c = classify(mt, ms, src.lang);
   const story = {
     id: hashId(normalizeUrl(item.link)),
@@ -113,7 +114,11 @@ async function fetchNews() {
       const fresh = items
         .filter((it) => !it.date || now - it.date <= opts.windowHours * HOUR)
         .slice(0, src.limit || opts.maxPerSource);
-      for (const it of fresh) stories.push(toStory(it, src));
+      for (const it of fresh) {
+        const story = toStory(it, src);
+        if (src.skipOther && story.cat === 'other') continue; // local sport, entertainment, horoscopes…
+        stories.push(story);
+      }
       h.ok = true;
       h.items = fresh.length;
     } catch (err) {
@@ -187,8 +192,13 @@ function mergeWithPrevious(stories, prev) {
   // state outlets per country, so they can't dominate coverage of any one place.
   const foreignSeen = new Map();
   const countrySeen = new Map();
+  const perSource = new Map();
   return merged.filter((s) => {
     const src = SOURCE_BY_ID.get(s.source);
+    // prolific feeds would otherwise pile up: the newest items are picked up every 5 minutes
+    const k = (perSource.get(s.source) || 0) + 1;
+    perSource.set(s.source, k);
+    if (k > (src?.keep ?? DEFAULT_KEEP)) return false;
     if (!src?.foreignCap || src.homeCc.includes(s.loc?.cc)) return true;
     const n = (foreignSeen.get(s.source) || 0) + 1;
     const cc = s.loc?.cc || 'none';

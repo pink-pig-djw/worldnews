@@ -48,6 +48,11 @@ export class Geoparser {
     return new Geoparser(JSON.parse(readFileSync(path, 'utf8')));
   }
 
+  homeResult(cc) {
+    const p = this.places.find((x) => x.id === `c-${cc}`);
+    return p ? { loc: { id: p.id, name: p.en, zh: p.zh, cc: p.cc, lat: p.lat, lng: p.lng, kind: p.k }, country: cc, related: [], mentions: [] } : null;
+  }
+
   /** A small town's name is used as a place: after "in/near/…", or followed by its country or state. */
   townEvidence(m, p) {
     if (!m.next) return true; // Chinese: only longer town names are indexed at all
@@ -144,7 +149,11 @@ export class Geoparser {
    * Geolocate a story from its title and summary.
    * Returns { loc, country, related, mentions } or null when nothing is recognised.
    */
-  parse(title, summary = '', lang = 'en') {
+  /**
+   * Where a story happened. `homeCc` (a local outlet's own country) helps pick between same-named
+   * places and, with `homeFallback`, locates national news that names no place at all.
+   */
+  parse(title, summary = '', lang = 'en', { homeCc = null, homeFallback = false } = {}) {
     const zh = lang.startsWith('zh');
     const tMatches = zh ? this.matchZh(title, true) : this.matchEn(title);
     const sMatches = summary ? (zh ? this.matchZh(summary, false) : this.matchEn(summary)) : [];
@@ -152,18 +161,18 @@ export class Geoparser {
       ...tMatches.map((m) => ({ ...m, w: 3, inTitle: true })),
       ...sMatches.map((m) => ({ ...m, w: 1, inTitle: false })),
     ];
-    if (!mentions.length) return null;
+    if (!mentions.length) return homeFallback && homeCc ? this.homeResult(homeCc) : null;
 
     // context: countries named unambiguously anywhere in the text (small towns don't count, they
     // need this context themselves)
-    const ctx = new Set();
+    const ctx = new Set(homeCc ? [homeCc] : []);
     for (const m of mentions) {
       const firm = m.cands.filter((c) => !this.places[c].ctx);
       if (firm.length === 1) ctx.add(this.places[firm[0]].cc);
     }
     for (const m of mentions) m.cands = m.cands.filter((c) => !this.places[c].ctx || (ctx.has(this.places[c].cc) && this.townEvidence(m, this.places[c])));
     for (let i = mentions.length - 1; i >= 0; i--) if (!mentions[i].cands.length) mentions.splice(i, 1);
-    if (!mentions.length) return null;
+    if (!mentions.length) return homeFallback && homeCc ? this.homeResult(homeCc) : null;
 
     const placeScore = new Map();
     const titleCountries = new Set();

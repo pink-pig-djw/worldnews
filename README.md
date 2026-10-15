@@ -9,7 +9,7 @@ A live 3D globe of world news — tap any hotspot to zoom in and read the latest
 | --- | --- |
 | 写实地球 | 按**真实太阳位置**实时计算的昼夜分布（低太阳暖光、民用晨昏蒙影、夜半球城市灯光随黄昏亮起）、虚线晨昏线与太阳直射点、海面太阳反光、漂移的云层与云影、大气光晕、星空与银河带 |
 | 当地时间 | 国家/地点详情显示**实时走秒的当地时间**、UTC 偏移、白天/黄昏/夜间；跨多个时区的国家注明首都时间与时区范围（IANA 时区数据库） |
-| 新闻热点 | 约 20 家媒体/机构的 RSS 自动**定位**到城市/地区/海域并**分类**（冲突、动荡、灾害、政治、外交、经济、社会、科技），按严重度、多源报道数与时效计算热度 |
+| 新闻热点 | 50 余家媒体/机构的 RSS（含各地当地媒体） 自动**定位**到城市/地区/海域并**分类**（冲突、动荡、灾害、政治、外交、经济、社会、科技），按严重度、多源报道数与时效计算热度 |
 | 点击即放大 | 点击标记 → 镜头飞近；邻近热点按缩放级别**自动聚合/拆分**，聚合点再点一次继续放大；详情面板列出报道、来源数、48 小时趋势、相关国家 |
 | 国家视图 | 点击任意国家查看在该国发生及涉及该国的全部报道 |
 | 关系弧线 | 同一条新闻中同时出现的国家之间画出动态弧线（如“美国 → 伊朗”） |
@@ -59,10 +59,11 @@ npm test             # 定位 / 分类 / 解析 / 聚合 单元测试
 
 | 类型 | 来源 |
 | --- | --- |
-| 英文媒体 | BBC、Al Jazeera、The Guardian、The New York Times、NPR、DW、France 24、Sky News、Euronews、SCMP、Times of India、Africanews |
+| 国际媒体（英文） | BBC、Al Jazeera、The Guardian、The New York Times、NPR、DW、France 24、Sky News、Euronews、SCMP、Times of India、Africanews |
+| 国际媒体（中文） | BBC 中文、DW 中文、RFI 华语、纽约时报中文网、FT中文网 |
 | 联合国机构 | UN News（英文、中文） |
-| 官方媒体（界面中标注） | CGTN、塔斯社、中国新闻网（条数减半，报道他国新闻时权重降至 45%） |
-| 中文媒体 | BBC 中文、DW 中文、RFI 华语 |
+| 各地当地媒体 | 日本：共同网（中文）、The Japan Times · 韩国：韩联社（中文）· 台湾：中央社、公视 · 香港：香港电台、Hong Kong Free Press · 东南亚：CNA、Bangkok Post、Rappler、The Irrawaddy · 南亚：The Hindu、Dawn · 中东：Middle East Eye · 非洲：Premium Times、Daily Maverick、Nation、Radio Dabanga · 欧洲：Meduza、Le Monde、ANSA、Balkan Insight · 拉美：Mexico News Daily、Buenos Aires Times、Tico Times、InSight Crime · 大洋洲：ABC、RNZ Pacific |
+| 官方媒体（界面中标注） | CGTN、塔斯社、中国新闻网、乌克兰国家通讯社、巴西通讯社（条数减半；报道他国新闻时权重降至 45%；所有官方媒体合计在任一外国最多保留 3 条） |
 | 灾害与空间 | USGS 地震、GDACS（欧盟委员会/联合国）、NASA EONET、CelesTrak |
 | 底图与边界 | NASA Blue Marble / Black Marble（经 three-globe 示例）、Natural Earth |
 | 时区 | IANA 时区数据库（tz database，公有领域） |
