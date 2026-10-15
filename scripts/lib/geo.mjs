@@ -6,6 +6,19 @@ const REAL = (cc) => cc && !['XS', 'XR', 'XO'].includes(cc);
 const ACTOR_PRONE = new Set(['US', 'GB', 'EU', 'RU', 'CN', 'FR', 'DE', 'XO']);
 const SPECIFIC = new Set(['city', 'region', 'admin1', 'sea']);
 const KIND_FACTOR = { city: 1.15, region: 1.15, admin1: 1.1, sea: 1.1, country: 1, actor: 1, org: 1, macro: 1 };
+// Seats of government named as such: "the Kremlin said…" happened in Moscow, not in the middle of
+// Russia. (Leaders' names map to the same entries but say nothing about where something happened.)
+const SEATS = [
+  ['kremlin', /\bKremlin\b|克里姆林宫/],
+  ['white-house', /\bWhite House\b|白宫/],
+  ['downing-street', /\bDowning Street\b|唐宁街/],
+  ['elysee', /\b[EÉ]lys[ée]e\b|爱丽舍宫/],
+  ['knesset', /\bKnesset\b|以色列议会/],
+];
+// Small towns only count with evidence that the name is a place: "in Kokopo", "Kokopo, Papua New Guinea".
+const PLACE_PREP = new Set(['in', 'at', 'near', 'outside', 'from', 'into', 'across', 'around', 'of', 'to', 'towards', 'toward']);
+const CAPITAL_EN = /\b(?:in|from|across|around|outside|near|on the streets of|streets of) (?:the|its|their|the country's) capital\b/i;
+const CAPITAL_ZH = /首都/;
 
 function normalizeEn(text) {
   return text
@@ -35,6 +48,35 @@ export class Geoparser {
     return new Geoparser(JSON.parse(readFileSync(path, 'utf8')));
   }
 
+  /** A small town's name is used as a place: after "in/near/…", or followed by its country or state. */
+  townEvidence(m, p) {
+    if (!m.next) return true; // Chinese: only longer town names are indexed at all
+    if (PLACE_PREP.has(m.prev)) return true;
+    for (let n = 1; n <= m.next.length; n++) {
+      const after = this.en.get(m.next.slice(0, n).join(' '));
+      if (after?.some((i) => this.places[i].cc === p.cc && (this.places[i].k === 'country' || this.places[i].k === 'admin1'))) return true;
+    }
+    return false;
+  }
+
+  /** "The Kremlin said…" → the Kremlin; "…protests in the capital" → the capital city. */
+  seatOrCapital(placeScore, mentions, cc, text) {
+    for (const [id, re] of SEATS) {
+      if (!re.test(text)) continue;
+      const p = this.places.find((x) => x.id === id);
+      if (p?.cc === cc) return p;
+    }
+    if (CAPITAL_EN.test(text) || CAPITAL_ZH.test(text)) {
+      this.capitals ||= new Map();
+      if (!this.capitals.has(cc)) {
+        const caps = this.places.filter((p) => p.cap && p.cc === cc).sort((a, b) => b.r - a.r);
+        this.capitals.set(cc, caps[0] || null);
+      }
+      return this.capitals.get(cc);
+    }
+    return null;
+  }
+
   /** Longest-match lookup of gazetteer names in English text. Returns [{cands, pos}] */
   matchEn(text) {
     const toks = [];
@@ -50,7 +92,7 @@ export class Geoparser {
         const key = n === 1 ? toks[i] : toks.slice(i, i + n).join(' ');
         const cands = this.en.get(key);
         if (cands) {
-          out.push({ cands, pos: i, key });
+          out.push({ cands, pos: i, key, prev: toks[i - 1]?.toLowerCase(), next: toks.slice(i + n, i + n + 3) });
           hit = n;
           break;
         }
@@ -112,9 +154,16 @@ export class Geoparser {
     ];
     if (!mentions.length) return null;
 
-    // context: countries named unambiguously anywhere in the text
+    // context: countries named unambiguously anywhere in the text (small towns don't count, they
+    // need this context themselves)
     const ctx = new Set();
-    for (const m of mentions) if (m.cands.length === 1) ctx.add(this.places[m.cands[0]].cc);
+    for (const m of mentions) {
+      const firm = m.cands.filter((c) => !this.places[c].ctx);
+      if (firm.length === 1) ctx.add(this.places[firm[0]].cc);
+    }
+    for (const m of mentions) m.cands = m.cands.filter((c) => !this.places[c].ctx || (ctx.has(this.places[c].cc) && this.townEvidence(m, this.places[c])));
+    for (let i = mentions.length - 1; i >= 0; i--) if (!mentions[i].cands.length) mentions.splice(i, 1);
+    if (!mentions.length) return null;
 
     const placeScore = new Map();
     const titleCountries = new Set();
@@ -173,6 +222,8 @@ export class Geoparser {
         const country = this.places.find((p) => p.id === `c-${bestCc}`);
         if (country && loc.k !== 'city') loc = country;
       }
+      // a country-level story that names where it happened in other words
+      if (loc?.k === 'country') loc = this.seatOrCapital(placeScore, mentions, bestCc, `${title} ${summary}`) || loc;
     }
     if (!loc) {
       // nothing country-level: use the strongest sea/region/organisation/macro-region

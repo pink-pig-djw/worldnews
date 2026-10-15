@@ -117,3 +117,11 @@ test('Chinese wording for alerts and quake locations', () => {
   assert.equal(zh.hazard({ source: 'eonet', type: 'fire', title: 'Wildfire CYRUS, Kern, California' }).title, '山火 CYRUS（加利福尼亚 Kern）');
   assert.equal(zh.hazard({ source: 'eonet', type: 'storm', title: 'Typhoon Koguma', severity: '50 kts' }).severity, '风速 50 节（约 93 km/h）');
 });
+
+test('precise locations: seats of government, capitals, small towns', () => {
+  assert.equal(loc('Kremlin says new sanctions will not change Russia’s course')?.id, 'kremlin');
+  assert.equal(loc('Trump ramps up third-country deportations from the US')?.kind, 'country');
+  assert.equal(geo.parse('Albania’s PM dismisses calls to resign', 'Protests continue for a third day in the capital.', 'en')?.loc.name, 'Tirana');
+  assert.equal(loc('Clashes erupt in Rumbek as South Sudan tensions rise')?.name, 'Rumbek');
+  assert.notEqual(loc('Joni Mitchell becomes US citizen')?.name, 'Mitchell');
+});

@@ -233,8 +233,9 @@ def build():
         pop = p["POP_MAX"] or 0
         cla = p["FEATURECLA"] or ""
         is_cap = cla in caps
-        if not (pop >= 150_000 or is_cap or (cla.startswith("Admin-1") and pop >= 60_000)):
-            continue
+        # big cities and capitals match on their own; smaller towns only when the story also names
+        # their country (`ctx`), so that town names that are common words don't create false hits
+        major = pop >= 150_000 or is_cap or (cla.startswith("Admin-1") and pop >= 60_000)
         cc = p["ISO_A2"] if p["ISO_A2"] not in ("-99", None) else p["ADM0_A3"]
         if p["NAME"] in CRIMEA_CITIES or p["NAMEASCII"] in CRIMEA_CITIES:
             cc = "UA"
@@ -246,8 +247,8 @@ def build():
         if pid in g.by_id:
             continue
         zh = clean_zh(p.get("NAME_ZH"))
-        idx = g.add_place(pid, "city", cc, p["LATITUDE"], p["LONGITUDE"], name, zh, rank,
-                          extra={"cap": 1} if is_cap else None)
+        extra = {"cap": 1} if is_cap else {} if major else {"ctx": 1}
+        idx = g.add_place(pid, "city", cc, p["LATITUDE"], p["LONGITUDE"], name, zh, rank, extra=extra or None)
         n_city += 1
         names = {name, p["NAMEASCII"] or ""}
         for alt in (p.get("NAMEALT") or "").split("|"):
@@ -257,7 +258,7 @@ def build():
         for n in names:
             if n:
                 g.add_en(n, idx)
-        if zh:
+        if zh and (major or len(zh) >= 3):  # short Chinese names of small towns collide with ordinary words
             g.add_zh(zh, idx)
 
     # ---------- first-level admin divisions for news-heavy countries ----------
