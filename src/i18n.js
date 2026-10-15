@@ -84,6 +84,10 @@ const STR = {
     zoomIn: '放大查看',
     translate: '翻译为中文',
     original: '原文',
+    localTime: '当地时间',
+    capitalTime: (c) => `首都${c}时间`,
+    tzSpan: (n, a, b) => `全国跨 ${n} 个时区（${a} 至 ${b}）`,
+    phase: { day: '白天', night: '夜间', dawn: '黎明', dusk: '黄昏' },
     tr: {
       label: '自动翻译英文报道',
       offer: '英文报道可以在你的设备上自动译成中文（浏览器内置离线翻译，不上传任何内容；首次需下载语言包）',
@@ -204,6 +208,10 @@ const STR = {
     zoomIn: 'Zoom in',
     translate: 'Translate',
     original: 'Original',
+    localTime: 'Local time',
+    capitalTime: (c) => `Time in ${c}`,
+    tzSpan: (n, a, b) => `${n} time zones (${a} to ${b})`,
+    phase: { day: 'daytime', night: 'night', dawn: 'dawn', dusk: 'dusk' },
     tr: {
       label: 'Translate English reports',
       offer: 'English reports can be translated on this device',

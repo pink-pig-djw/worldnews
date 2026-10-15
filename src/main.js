@@ -11,7 +11,7 @@ import { quakePlace, storyTitle } from './data/localize.js';
 import { disableTranslation, enableTranslation, initTranslation, translateNow, translateStories } from './data/translate.js';
 import { icon } from './ui/icons.js';
 import { feedTab, hazardsTab, hotTab, settingsTab } from './ui/lists.js';
-import { clusterDetail, countryDetail, hazardDetail, placeDetail, quakeDetail, satDetail, satKv, storyHtml } from './ui/panels.js';
+import { clockHtml, clusterDetail, countryDetail, hazardDetail, placeDetail, quakeDetail, satDetail, satKv, storyHtml } from './ui/panels.js';
 
 // ---------------------------------------------------------------- settings
 const DEFAULT_LAYERS = { markers: true, arcs: true, pillars: true, rings: true, quakes: true, hazards: true, sats: true, labels: true, borders: true, clouds: true, terminator: true, heat: false };
@@ -137,6 +137,11 @@ function tickClock() {
     const gen = Date.parse(store.raw.generated) / 1000;
     $('#updated').textContent = t().updated(timeAgo(gen));
     $('#live-dot').className = `live-dot${ui.loadFailed ? ' down' : Date.now() / 1000 - gen > 60 * 60 ? ' stale' : ''}`;
+  }
+  // live local time in the open country/place panel
+  for (const el of $$('#detail .d-clock')) {
+    const { cc, lat, lng } = el.dataset;
+    el.innerHTML = clockHtml({ cc, lat: lat != null ? Number(lat) : null, lng: lng != null ? Number(lng) : null });
   }
 }
 setInterval(tickClock, 1000);

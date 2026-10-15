@@ -30,7 +30,9 @@ const EARTH_FRAG = /* glsl */ `
     vec3 N = normalize(vNormalW);
     vec3 V = normalize(cameraPosition - vPosW);
     vec3 L = normalize(sunDir);
-    float ndl = mix(0.62, dot(N, L), terminator);
+    // sine of the sun's elevation at this point (0 on the terminator); flat light when the
+    // day/night layer is off
+    float sunSin = mix(0.62, dot(N, L), terminator);
 
     vec3 day = texture2D(dayMap, vUv).rgb;
     vec3 aux = texture2D(auxMap, vUv).rgb;
@@ -38,61 +40,49 @@ const EARTH_FRAG = /* glsl */ `
     float water = aux.g;
     float cloud = texture2D(auxMap, vec2(vUv.x + cloudShift, vUv.y)).b * cloudAmount;
 
-    float dayMix = smoothstep(-0.12, 0.2, ndl);
-    vec3 dayCol = day * (0.16 + 1.08 * clamp(ndl, 0.0, 1.0));
-    dayCol *= 1.0 - 0.38 * cloud;                       // cloud shadows
+    // Sunlight follows the sun's elevation and turns warm when the sun is low; past the terminator
+    // only scattered twilight remains (civil twilight ends at -6 degrees, sin = -0.10).
+    float direct = clamp(sunSin, 0.0, 1.0);
+    vec3 warm = mix(vec3(1.0, 0.56, 0.32), vec3(1.0), smoothstep(0.0, 0.2, sunSin));
+    float twilight = smoothstep(-0.105, 0.0, sunSin);
+    vec3 lit = day * warm * (0.06 + 1.12 * pow(direct, 0.8)) + day * vec3(0.05, 0.065, 0.1) * twilight;
+    lit *= 1.0 - 0.38 * cloud;                                   // cloud shadows
 
-    vec3 H = normalize(L + V);                           // sun glint on open water
+    vec3 H = normalize(L + V);                                   // sun glint on open water
     float spec = pow(max(dot(N, H), 0.0), 75.0) * water;
-    dayCol += vec3(1.0, 0.88, 0.7) * spec * 0.6 * smoothstep(0.0, 0.25, ndl) * (1.0 - cloud);
+    lit += vec3(1.0, 0.86, 0.68) * warm * spec * 0.6 * smoothstep(0.0, 0.2, sunSin) * (1.0 - cloud);
 
-    float city = pow(lights, 1.45);
-    vec3 nightCol = day * 0.03 + vec3(0.002, 0.005, 0.014);
-    nightCol += vec3(1.0, 0.66, 0.3) * city * 1.7 * (1.0 - 0.75 * cloud);
+    // Night: deep blue-black ground and city lights that come on through dusk
+    float night = 1.0 - smoothstep(-0.1, 0.05, sunSin);
+    vec3 dark = day * 0.022 + vec3(0.002, 0.004, 0.011);
+    float city = pow(lights, 1.45) * night * (1.0 - 0.75 * cloud);
+    vec3 col = mix(dark, lit, smoothstep(-0.12, 0.04, sunSin)) + vec3(1.0, 0.66, 0.3) * city * 1.7;
 
-    vec3 col = mix(nightCol, dayCol, dayMix);
-    float tw = exp(-pow(ndl / 0.13, 2.0));
-    col += vec3(0.95, 0.38, 0.12) * tw * 0.075 * terminator;
+    // Clouds, drawn here rather than as a second sphere: one full-globe pass less per frame
+    float ca = cloud * cloud * 0.85;
+    vec3 cloudLit = warm * (0.08 + 0.95 * smoothstep(-0.06, 0.25, sunSin));
+    float cloudDay = smoothstep(-0.12, 0.06, sunSin);
+    vec3 cloudCol = mix(vec3(0.028, 0.04, 0.065), cloudLit, cloudDay);
+    col = mix(col, cloudCol, ca * (0.25 + 0.75 * cloudDay));
 
     if (nightStyle > 0.001) {
       float lum = dot(day, vec3(0.299, 0.587, 0.114));
       vec3 ops = mix(vec3(0.010, 0.020, 0.042), vec3(0.055, 0.085, 0.125), (1.0 - water) * smoothstep(0.02, 0.45, lum));
       float coast = clamp(fwidth(water) * 2.2, 0.0, 1.0);
       ops += vec3(0.25, 0.62, 1.0) * coast * 0.5;
-      ops += vec3(1.0, 0.7, 0.38) * city * 1.25;
+      ops *= mix(1.0, mix(0.5, 1.0, smoothstep(-0.12, 0.04, sunSin)), terminator); // keep day/night readable
+      ops += vec3(1.0, 0.7, 0.38) * pow(lights, 1.45) * 1.25;
       col = mix(col, ops, nightStyle);
     }
 
+    // atmosphere seen edge-on: blue on the day side, faint on the night side
     float fres = pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 2.6);
-    float dayRim = smoothstep(-0.35, 0.35, ndl);
-    vec3 rimCol = mix(vec3(0.05, 0.1, 0.28), vec3(0.36, 0.62, 1.0), dayRim);
-    col += rimCol * fres * (0.22 + 0.62 * dayRim);
+    float dayRim = smoothstep(-0.3, 0.3, sunSin);
+    vec3 rimCol = mix(vec3(0.03, 0.06, 0.18), vec3(0.36, 0.62, 1.0), dayRim);
+    col += rimCol * fres * (0.18 + 0.66 * dayRim);
 
     gl_FragColor = vec4(col * reveal, 1.0);
     #include <tonemapping_fragment>
-    #include <colorspace_fragment>
-  }
-`;
-
-const CLOUD_FRAG = /* glsl */ `
-  uniform sampler2D auxMap;
-  uniform vec3 sunDir;
-  uniform float cloudShift;
-  uniform float opacity;
-  uniform float terminator;
-  varying vec2 vUv;
-  varying vec3 vNormalW;
-  varying vec3 vPosW;
-  void main() {
-    vec3 N = normalize(vNormalW);
-    vec3 V = normalize(cameraPosition - vPosW);
-    float c = texture2D(auxMap, vec2(vUv.x + cloudShift, vUv.y)).b;
-    float ndl = mix(0.62, dot(N, normalize(sunDir)), terminator);
-    float lit = smoothstep(-0.16, 0.28, ndl);
-    vec3 col = mix(vec3(0.04, 0.06, 0.1), vec3(1.0), lit);
-    col = mix(col, vec3(1.0, 0.62, 0.36), exp(-pow(ndl / 0.11, 2.0)) * 0.4 * terminator);
-    float edge = smoothstep(0.0, 0.3, dot(N, V));
-    gl_FragColor = vec4(col, c * c * opacity * (0.1 + 0.9 * lit) * edge);
     #include <colorspace_fragment>
   }
 `;
@@ -120,10 +110,10 @@ const ATMO_FRAG = /* glsl */ `
   void main() {
     float i = pow(clamp(0.16 + dot(vPosDir, vNormal), 0.0, 1.0), 4.2);
     float ndl = mix(0.6, dot(normalize(vNormalW), normalize(sunDir)), terminator);
-    float lit = smoothstep(-0.45, 0.35, ndl);
-    vec3 col = mix(vec3(0.12, 0.2, 0.55), vec3(0.38, 0.68, 1.0), lit);
-    col = mix(col, vec3(1.0, 0.5, 0.25), exp(-pow(ndl / 0.16, 2.0)) * 0.45 * terminator);
-    gl_FragColor = vec4(col, i * strength * (0.28 + 0.72 * lit));
+    float lit = smoothstep(-0.35, 0.3, ndl);
+    vec3 col = mix(vec3(0.1, 0.16, 0.45), vec3(0.38, 0.68, 1.0), lit);
+    col = mix(col, vec3(1.0, 0.52, 0.28), exp(-pow(ndl / 0.11, 2.0)) * 0.32 * terminator);
+    gl_FragColor = vec4(col, i * strength * (0.2 + 0.8 * lit));
   }
 `;
 
@@ -147,7 +137,7 @@ export function createEarthMaterial() {
   return new THREE.ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: EARTH_FRAG });
 }
 
-export function loadEarthTextures(material, cloudsMat, renderer, size) {
+export function loadEarthTextures(material, renderer, size) {
   const loader = new THREE.TextureLoader();
   const aniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
   const load = (url, srgb) =>
@@ -160,28 +150,7 @@ export function loadEarthTextures(material, cloudsMat, renderer, size) {
   return Promise.all([load(`textures/earth-day-${size}.jpg`, true), load(`textures/earth-aux-${size}.jpg`, false)]).then(([day, aux]) => {
     material.uniforms.dayMap.value = day;
     material.uniforms.auxMap.value = aux;
-    if (cloudsMat) cloudsMat.uniforms.auxMap.value = aux;
   });
-}
-
-export function createClouds(radius, shared) {
-  const mat = new THREE.ShaderMaterial({
-    uniforms: {
-      auxMap: shared.auxMap,
-      sunDir: shared.sunDir,
-      cloudShift: shared.cloudShift,
-      terminator: shared.terminator,
-      opacity: { value: 0.85 },
-    },
-    vertexShader: VERT,
-    fragmentShader: CLOUD_FRAG,
-    transparent: true,
-    depthWrite: false,
-  });
-  const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.007, 96, 64), mat);
-  mesh.rotation.y = -Math.PI / 2; // same UV orientation as the three-globe sphere
-  mesh.renderOrder = 1;
-  return mesh;
 }
 
 export function createAtmosphere(radius, shared) {

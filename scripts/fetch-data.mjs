@@ -80,8 +80,9 @@ function toStory(item, src) {
   const c = classify(mt, ms, src.lang);
   const story = {
     id: hashId(normalizeUrl(item.link)),
-    title,
-    summary,
+    // Chinese feeds that publish in traditional characters are shown in simplified, like the interface
+    title: zh ? mt : title,
+    summary: zh ? ms : summary,
     url: item.link,
     source: src.id,
     lang: src.lang,

@@ -3,6 +3,7 @@ import { CAT, HAZARD_COLOR, QUAKE_COLOR, SUB_ICON } from '../config.js';
 import { getLang, t, timeAgo } from '../i18n.js';
 import { countryName, flag, isRealCc, placeName } from '../data/store.js';
 import { hazardText, isTranslated, quakePlace, storySummary, storyTitle } from '../data/localize.js';
+import { localClock } from '../data/localtime.js';
 import { esc, fmtTime, safeUrl, sevLevel } from './dom.js';
 import { icon } from './icons.js';
 
@@ -105,6 +106,25 @@ function relatedChips(stories) {
     .join('')}</div>`;
 }
 
+/** Live local clock; main.js repaints every `.d-clock` once a second. */
+function clockSlot({ cc, lat = null, lng = null }) {
+  const attrs = `data-cc="${esc(cc || '')}"${lat != null ? ` data-lat="${lat}" data-lng="${lng}"` : ''}`;
+  return `<div class="d-clock" ${attrs}>${clockHtml({ cc, lat, lng })}</div>`;
+}
+
+export function clockHtml(spec) {
+  const c = localClock(spec);
+  if (!c) return '';
+  const [hm, sec] = [c.time.slice(0, 5), c.time.slice(5)];
+  const ph = c.phase;
+  const ico = ph === 'night' ? icon('moon', 15) : icon('sun', 15);
+  return `<span class="clk-ico ph-${ph || 'day'}" title="${esc(ph ? t().phase[ph] : '')}">${ico}</span>
+    <span class="clk-time">${esc(hm)}<small>${esc(sec)}</small></span>
+    <span class="clk-meta"><b>${esc(c.capital ? t().capitalTime(c.capital) : t().localTime)}</b><span>${esc(c.date)} · ${esc(c.offset)}${ph ? ` · ${esc(t().phase[ph])}` : ''}</span>${
+      c.span ? `<span>${esc(t().tzSpan(c.span.n, c.span.from, c.span.to))}</span>` : ''
+    }</span>`;
+}
+
 export function placeDetail(place, store) {
   const stories = place.stories;
   const k = t().kinds[place.kind] || '';
@@ -114,6 +134,7 @@ export function placeDetail(place, store) {
       <div class="d-top"><span class="badge">${esc(k)}</span>${parent ? `<span>${parent}</span>` : ''}${closeBtn()}</div>
       <h2 class="d-title">${place.kind === 'country' && cc ? `<span class="flag">${flag(cc)}</span>` : ''}${esc(placeName(place))}</h2>
       <div class="d-sub">${esc(getLang() === 'zh' ? place.name || '' : place.zh || '')}</div>
+      ${place.kind === 'country' ? clockSlot({ cc: place.cc }) : clockSlot({ cc: place.cc, lat: place.lat, lng: place.lng })}
     </div>
     ${stats(stories)}${catBar(stories)}${histogram(stories, store)}${relatedChips(stories)}
     <div class="section-h">${esc(t().reports(stories.length))}</div>
@@ -149,6 +170,7 @@ export function countryDetail(cc, store) {
   return `<div class="d-head">
       <div class="d-top"><span class="badge">${esc(t().kinds.country)}</span>${closeBtn()}</div>
       <h2 class="d-title"><span class="flag">${flag(cc)}</span>${esc(countryName(cc))}</h2>
+      ${clockSlot({ cc })}
     </div>
     ${located.length ? stats(located) + catBar(located) + histogram(located, store) : ''}
     ${relatedChips(all)}

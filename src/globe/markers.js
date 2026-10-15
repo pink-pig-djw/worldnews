@@ -235,23 +235,58 @@ export function createMarkerLayer(view, root, handlers) {
     const moved = camKey !== lastCam;
     lastCam = camKey;
     if (moved || state.hasMovingItems || state.labelsDirty) {
+      // Only touch the DOM when something visibly changed: style writes on hundreds of elements every
+      // frame were the overlay's main cost. Markers behind the globe leave the layout entirely.
       for (const rec of els.values()) {
         const it = rec.item;
         const p = view.project(it.lat, it.lng, rec.kind === 'sat' ? it.alt ?? 0.066 : 0.012, cam);
         const vis = p.edge > 0;
-        const op = Math.min(1, p.edge / 0.12);
         rec.screen = vis ? p : null;
-        rec.el.style.transform = `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0)`;
-        rec.el.style.opacity = vis ? op.toFixed(2) : '0';
-        rec.el.style.visibility = vis ? 'visible' : 'hidden';
-        rec.el.style.zIndex = String(Math.round(p.facing * 100) + (rec.kind === 'news' ? 200 : rec.kind === 'sat' ? 400 : 100));
+        const st = rec.el.style;
+        if (!vis) {
+          if (rec.vis !== false) {
+            st.display = 'none';
+            rec.vis = false;
+          }
+          continue;
+        }
+        if (rec.vis !== true) {
+          st.display = '';
+          rec.vis = true;
+        }
+        const x = Math.round(p.x * 2) / 2;
+        const y = Math.round(p.y * 2) / 2;
+        if (x !== rec.x || y !== rec.y) {
+          st.transform = `translate3d(${x}px, ${y}px, 0)`;
+          rec.x = x;
+          rec.y = y;
+        }
+        const op = Math.round(Math.min(1, p.edge / 0.12) * 20) / 20;
+        if (op !== rec.op) {
+          st.opacity = String(op);
+          rec.op = op;
+        }
+        const z = Math.round(p.facing * 20) * 5 + (rec.kind === 'news' ? 200 : rec.kind === 'sat' ? 400 : 100);
+        if (z !== rec.z) {
+          st.zIndex = String(z);
+          rec.z = z;
+        }
       }
       for (const lb of countryLabels) {
         if (!lb.shown) continue;
         const p = view.project(lb.lat, lb.lng, 0.005, cam);
-        const op = Math.min(1, Math.max(0, (p.edge - 0.12) / 0.2));
-        lb.el.style.transform = `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0)`;
-        lb.el.style.opacity = (op * 0.85).toFixed(2);
+        const x = Math.round(p.x * 2) / 2;
+        const y = Math.round(p.y * 2) / 2;
+        if (x !== lb.x || y !== lb.y) {
+          lb.el.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+          lb.x = x;
+          lb.y = y;
+        }
+        const op = Math.round(Math.min(1, Math.max(0, (p.edge - 0.12) / 0.2)) * 17) / 20;
+        if (op !== lb.op) {
+          lb.el.style.opacity = String(op);
+          lb.op = op;
+        }
       }
     }
     const nowMs = performance.now();
@@ -312,12 +347,15 @@ export function createMarkerLayer(view, root, handlers) {
       if (hit(box)) continue;
       boxes.push(box);
       visible.add(lb);
+      lb.p = p;
       shown++;
     }
     for (const lb of countryLabels) {
       const on = visible.has(lb);
       if (on !== lb.shown) {
         lb.shown = on;
+        lb.x = lb.y = lb.op = undefined; // positions weren't tracked while hidden
+        if (on) lb.el.style.transform = `translate3d(${lb.p.x.toFixed(1)}px, ${lb.p.y.toFixed(1)}px, 0)`;
         lb.el.classList.toggle('on', on);
       }
     }
