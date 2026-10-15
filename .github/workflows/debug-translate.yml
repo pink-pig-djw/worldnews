@@ -1,0 +1,47 @@
+# Temporary: compare open translation models on live headlines (removed after the test).
+name: Probe translation models
+on:
+  push:
+    paths: [".github/workflows/debug-translate.yml"]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install transformers.js
+        run: mkdir probe && cd probe && npm init -y >/dev/null && npm i @huggingface/transformers@3.8.1 >/dev/null 2>&1 && npm ls --depth=0
+      - name: Translate live headlines
+        working-directory: probe
+        run: |
+          curl -s https://pink-pig-djw.github.io/worldnews/data/latest.json -o latest.json
+          cat > probe.mjs <<'JS'
+          import { readFileSync } from 'node:fs';
+          import { pipeline } from '@huggingface/transformers';
+          const d = JSON.parse(readFileSync('latest.json', 'utf8'));
+          const en = d.stories.filter((s) => s.lang === 'en').sort((a, b) => b.sev - a.sev);
+          const titles = en.slice(0, 24).map((s) => s.title);
+          const sums = en.slice(0, 4).map((s) => s.summary).filter(Boolean);
+          const hz = (d.hazards || []).filter((h) => h.summary).slice(0, 3).map((h) => h.summary);
+          const texts = [...titles, ...sums, ...hz];
+          console.log('stories', d.stories.length, 'english', en.length);
+          async function run(label, model, opts, prep) {
+            let t0 = Date.now();
+            const tr = await pipeline('translation', model, { dtype: 'q8' });
+            console.log(`\n===== ${label}: load ${Date.now() - t0} ms`);
+            t0 = Date.now();
+            for (const x of texts) {
+              const s = Date.now();
+              const [r] = await tr(prep(x), { max_new_tokens: 256, ...opts });
+              console.log(`[${Date.now() - s}ms] ${x.slice(0, 110)}\n    → ${r.translation_text}`);
+            }
+            console.log(`total ${Date.now() - t0} ms for ${texts.length}`);
+          }
+          await run('opus-mt-en-zh', 'Xenova/opus-mt-en-zh', {}, (x) => `>>cmn_Hans<< ${x}`);
+          await run('nllb-600M', 'Xenova/nllb-200-distilled-600M', { src_lang: 'eng_Latn', tgt_lang: 'zho_Hans' }, (x) => x);
+          JS
+          node probe.mjs
