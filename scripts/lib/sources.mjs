@@ -8,6 +8,8 @@
 // the map and in rankings (home = located in `homeCc`); `foreignCap` limits how many stories
 // located elsewhere are kept in the rolling window.
 const STATE = { limit: 15, foreignCap: 20, weight: { home: 0.8, foreign: 0.45 } };
+// All state outlets together keep at most this many stories located in any one foreign country.
+export const STATE_PER_COUNTRY = 3;
 const CN_STATE = { ...STATE, homeCc: ['CN', 'HK', 'MO'] };
 
 export const NEWS_SOURCES = [

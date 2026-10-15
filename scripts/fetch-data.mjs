@@ -14,7 +14,7 @@ import { createZh } from './lib/zh.mjs';
 import { mergeHazards, normalizeEonet, normalizeGdacs, normalizeUsgs, parseTle } from './lib/hazards.mjs';
 import { fetchJson, fetchText } from './lib/http.mjs';
 import { parseFeed } from './lib/rss.mjs';
-import { HAZARD_SOURCES, NEWS_SOURCES, SATELLITES } from './lib/sources.mjs';
+import { HAZARD_SOURCES, NEWS_SOURCES, SATELLITES, STATE_PER_COUNTRY } from './lib/sources.mjs';
 import { hashId, HOUR, mapLimit, normalizeUrl, truncate } from './lib/util.mjs';
 
 const SOURCE_BY_ID = new Map(NEWS_SOURCES.map((s) => [s.id, s]));
@@ -183,14 +183,20 @@ function mergeWithPrevious(stories, prev) {
     if (!byId.has(s.id) && now - s.time <= opts.windowHours * HOUR) byId.set(s.id, s);
   }
   const merged = [...byId.values()].sort((a, b) => b.time - a.time);
-  // sources with a foreign-story cap keep only their newest stories about other countries
+  // State media keep only their newest stories about other countries: per outlet, and across all
+  // state outlets per country, so they can't dominate coverage of any one place.
   const foreignSeen = new Map();
+  const countrySeen = new Map();
   return merged.filter((s) => {
     const src = SOURCE_BY_ID.get(s.source);
     if (!src?.foreignCap || src.homeCc.includes(s.loc?.cc)) return true;
     const n = (foreignSeen.get(s.source) || 0) + 1;
+    const cc = s.loc?.cc || 'none';
+    const m = (countrySeen.get(cc) || 0) + 1;
+    if (n > src.foreignCap || m > STATE_PER_COUNTRY) return false;
     foreignSeen.set(s.source, n);
-    return n <= src.foreignCap;
+    countrySeen.set(cc, m);
+    return true;
   });
 }
 

@@ -63,10 +63,24 @@ export function groupedStories(stories, store, opts = {}) {
   }
   const list = [...groups.values()].map((items) => items.sort((a, b) => b.w - a.w)).sort((a, b) => b[0].w - a[0].w);
   const limit = opts.limit ?? 60;
-  return list
-    .slice(0, limit)
-    .map((items) => storyHtml(items[0], store, { others: items.slice(1), showPlace: opts.showPlace }))
-    .join('');
+  // State media reporting on another country: a couple are shown, the rest folded away, so a panel
+  // leads with independent outlets. `stateBudget` is shared by the sections of one panel.
+  const budget = opts.stateBudget || { left: 2 };
+  const shown = [];
+  const folded = [];
+  for (const items of list.slice(0, limit)) {
+    if (isStateAbroad(items[0], store, opts.cc) && budget.left-- <= 0) folded.push(items);
+    else shown.push(items);
+  }
+  const html = (groups) => groups.map((items) => storyHtml(items[0], store, { others: items.slice(1), showPlace: opts.showPlace })).join('');
+  return html(shown) + (folded.length ? `<details class="state-more"><summary>${icon('chevron', 14)}${esc(t().stateMore(folded.length))}</summary>${html(folded)}</details>` : '');
+}
+
+function isStateAbroad(s, store, contextCc) {
+  const src = store.source(s.source);
+  if (src.kind !== 'state') return false;
+  const cc = contextCc || s.loc?.cc;
+  return !(src.homeCc || [src.country]).includes(cc);
 }
 
 function catBar(stories) {
@@ -138,7 +152,7 @@ export function placeDetail(place, store) {
     </div>
     ${stats(stories)}${catBar(stories)}${histogram(stories, store)}${relatedChips(stories)}
     <div class="section-h">${esc(t().reports(stories.length))}</div>
-    ${groupedStories(stories, store)}
+    ${groupedStories(stories, store, { cc })}
     <div class="actions">
       ${cc && place.kind !== 'country' ? `<button class="btn secondary" data-action="country" data-cc="${esc(cc)}">${icon('globe', 15)}${esc(t().seeCountry)}</button>` : ''}
       <button class="btn secondary" data-action="copy">${icon('link', 15)}${esc(t().copyLink)}</button>
@@ -167,6 +181,7 @@ export function clusterDetail(cluster, store) {
 export function countryDetail(cc, store) {
   const { located, involving } = store.storiesForCountry(cc);
   const all = [...located, ...involving];
+  const budget = { left: 2 };
   return `<div class="d-head">
       <div class="d-top"><span class="badge">${esc(t().kinds.country)}</span>${closeBtn()}</div>
       <h2 class="d-title"><span class="flag">${flag(cc)}</span>${esc(countryName(cc))}</h2>
@@ -174,8 +189,8 @@ export function countryDetail(cc, store) {
     </div>
     ${located.length ? stats(located) + catBar(located) + histogram(located, store) : ''}
     ${relatedChips(all)}
-    ${located.length ? `<div class="section-h">${esc(t().reports(located.length))}</div>${groupedStories(located, store, { showPlace: true })}` : `<div class="empty">${esc(t().noStories)}</div>`}
-    ${involving.length ? `<div class="section-h">${esc(t().involving)} · ${involving.length}</div>${groupedStories(involving, store, { showPlace: true, limit: 25 })}` : ''}
+    ${located.length ? `<div class="section-h">${esc(t().reports(located.length))}</div>${groupedStories(located, store, { showPlace: true, cc, stateBudget: budget })}` : `<div class="empty">${esc(t().noStories)}</div>`}
+    ${involving.length ? `<div class="section-h">${esc(t().involving)} · ${involving.length}</div>${groupedStories(involving, store, { showPlace: true, limit: 25, cc, stateBudget: budget })}` : ''}
     <div class="actions"><button class="btn secondary" data-action="copy">${icon('link', 15)}${esc(t().copyLink)}</button></div>`;
 }
 
