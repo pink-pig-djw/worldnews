@@ -203,9 +203,13 @@ function visibleQuakes() {
   return (store.raw?.quakes || []).filter((q) => now - q.time < 3 * 86400 && (q.mag >= 5 || now - q.time < 86400));
 }
 function visibleHazards() {
-  const hz = store.raw?.hazards || [];
-  const fires = hz.filter((h) => h.type === 'fire' && !h.alert).slice(0, 40);
-  return [...hz.filter((h) => !(h.type === 'fire' && !h.alert)), ...fires];
+  // every red/orange alert; only the freshest green alerts and natural events, so the map stays legible
+  const hz = (store.raw?.hazards || []).slice().sort((a, b) => b.time - a.time);
+  const severe = hz.filter((h) => h.alert === 'red' || h.alert === 'orange');
+  const rest = hz.filter((h) => !severe.includes(h) && h.type !== 'drought');
+  const fires = rest.filter((h) => h.type === 'fire').slice(0, 15);
+  const others = rest.filter((h) => h.type !== 'fire').slice(0, 30);
+  return [...severe, ...others, ...fires];
 }
 
 function renderLayers() {
@@ -219,7 +223,7 @@ function renderLayers() {
   // arcs (focus on the current selection)
   const cur = ui.current;
   const focus = cur?.type === 'place' ? cur.id : cur?.type === 'country' ? cur.cc : null;
-  view.setArcs(L.arcs ? v.arcs : [], focus);
+  view.setArcs(L.arcs ? v.arcs.slice(0, 32) : [], focus);
 
   // light pillars for the hottest places
   const top = v.places.slice(0, 32);
@@ -408,7 +412,7 @@ function closeDetail() {
   app.classList.remove('has-detail');
   markers.select({});
   view.setSelectedCountry(null);
-  view.setArcs(settings.layers.arcs ? store.view.arcs : [], null);
+  view.setArcs(settings.layers.arcs ? store.view.arcs.slice(0, 32) : [], null);
   renderRings();
   renderPaths();
   setHash('');
@@ -437,7 +441,7 @@ function selectPlace(place, { storyId = null, fromTour = false } = {}) {
   view.setSelectedCountry(place.kind === 'country' ? place.cc : null);
   fly(place.lat, place.lng, Math.min(view.altitude, altitudeFor(place.kind, place.cc)));
   openDetail(placeDetail(place, store));
-  view.setArcs(settings.layers.arcs ? store.view.arcs : [], place.id);
+  view.setArcs(settings.layers.arcs ? store.view.arcs.slice(0, 32) : [], place.id);
   renderRings();
   setHash(`p=${encodeURIComponent(place.id)}`);
   if (storyId) highlightStory(storyId);
@@ -462,7 +466,7 @@ function selectCountry(cc) {
   view.setSelectedCountry(cc);
   if (info) fly(info.lat, info.lng, Math.min(Math.max(view.altitude, 0.7), altitudeFor('country', cc) * 1.15));
   openDetail(countryDetail(cc, store));
-  view.setArcs(settings.layers.arcs ? store.view.arcs : [], cc);
+  view.setArcs(settings.layers.arcs ? store.view.arcs.slice(0, 32) : [], cc);
   renderRings();
   setHash(`c=${cc}`);
 }

@@ -53,7 +53,7 @@ export function createMarkerLayer(view, root, handlers) {
 
   function recluster() {
     const ppd = pxPerDegree();
-    const threshold = 34 / ppd; // degrees: merge markers closer than ~34px
+    const threshold = 38 / ppd; // degrees: merge markers closer than ~38px
     const sorted = [...state.places].sort((a, b) => b.score - a.score);
     const clusters = [];
     for (const p of sorted) {
@@ -100,7 +100,10 @@ export function createMarkerLayer(view, root, handlers) {
     const now = Date.now() / 1000;
     const color = CAT[c.topCat]?.color || '#fff';
     const norm = Math.sqrt(c.score / state.maxScore);
-    const size = Math.round(15 + 19 * norm);
+    // minor places become small dots so the real hotspots stand out
+    const minor = norm < 0.2 && c.count < 3;
+    const size = minor ? 9 : Math.round(14 + 20 * norm);
+    el.classList.toggle('is-minor', minor);
     const lead = c.lead.stories[0];
     const iconName = SUB_ICON[lead?.sub] && lead.cat === c.topCat ? SUB_ICON[lead.sub] : CAT[c.topCat]?.icon;
     const fresh = now - c.latest < 3600;
@@ -117,7 +120,7 @@ export function createMarkerLayer(view, root, handlers) {
     el.__sig = sig;
     el.__lw = null;
     el.innerHTML = `<span class="mk-halo"></span><span class="mk-core">${size >= 19 ? icon(iconName, Math.round(size * 0.52)) : ''}</span>${
-      c.count > 1 ? `<span class="mk-count">${c.count > 99 ? '99+' : c.count}</span>` : ''
+      c.count > 1 && !minor ? `<span class="mk-count">${c.count > 99 ? '99+' : c.count}</span>` : ''
     }<span class="mk-label"><b>${name}</b>${more ? `<i>${more}</i>` : ''}</span>`;
   }
 

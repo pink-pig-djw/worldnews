@@ -40,6 +40,12 @@ test('classifier separates conflict, trade "wars" and labour strikes', () => {
   assert.equal(classify('Clashes erupt in Sweida, Syria').cat, 'conflict');
   assert.equal(classify('Magnitude 6.2 earthquake strikes off coast of Japan').sub, 'quake');
   assert.equal(classify('台风逼近广东 数十万人撤离', '', 'zh').cat, 'disaster');
+  // regressions seen in live feeds
+  assert.equal(classify('Britain to supply Ukraine with more Storm Shadow missiles').cat, 'conflict');
+  assert.equal(classify('Storm Amy brings heavy rain to Ireland').sub, 'storm');
+  assert.notEqual(classify('Dublin hotel accused of revoking bookings for an event to combat antisemitism').cat, 'conflict');
+  assert.equal(classify('Yemen claims over 700 Houthis killed after 1,250 strikes rained within 24 hours').cat, 'conflict');
+  assert.equal(classify('Floods kill 120 people in Nigeria').cat, 'disaster');
 });
 
 test('death counts raise severity', () => {

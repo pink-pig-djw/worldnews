@@ -8,7 +8,7 @@ A live 3D globe of world news — tap any hotspot to zoom in and read the latest
 | 模块 | 说明 |
 | --- | --- |
 | 写实地球 | 按**真实太阳位置**实时计算的昼夜晨昏线、夜半球城市灯光、海面太阳反光、缓慢漂移的云层与云影、随日照变色的大气光晕、程序生成的星空与银河带 |
-| 新闻热点 | 约 25 家媒体/机构的 RSS 自动**定位**到城市/地区/海域并**分类**（冲突、动荡、灾害、政治、外交、经济、社会、科技），按严重度、多源报道数与时效计算热度 |
+| 新闻热点 | 约 20 家媒体/机构的 RSS 自动**定位**到城市/地区/海域并**分类**（冲突、动荡、灾害、政治、外交、经济、社会、科技），按严重度、多源报道数与时效计算热度 |
 | 点击即放大 | 点击标记 → 镜头飞近；邻近热点按缩放级别**自动聚合/拆分**，聚合点再点一次继续放大；详情面板列出报道、来源数、48 小时趋势、相关国家 |
 | 国家视图 | 点击任意国家查看在该国发生及涉及该国的全部报道 |
 | 关系弧线 | 同一条新闻中同时出现的国家之间画出动态弧线（如“美国 → 伊朗”） |
@@ -54,10 +54,10 @@ npm test             # 定位 / 分类 / 解析 / 聚合 单元测试
 
 | 类型 | 来源 |
 | --- | --- |
-| 英文媒体 | BBC、Al Jazeera、The Guardian、The New York Times、NPR、DW、France 24、CBC、Sky News、ABC (AU)、Euronews、SCMP、Times of India、Africanews |
-| 联合国机构 | UN News、ReliefWeb（OCHA） |
-| 官方媒体（界面中标注） | CGTN、新华社英文、塔斯社、中国新闻网 |
-| 中文媒体 | BBC 中文、DW 中文、RFI 华语、联合国新闻中文、联合早报 |
+| 英文媒体 | BBC、Al Jazeera、The Guardian、The New York Times、NPR、DW、France 24、Sky News、Euronews、SCMP、Times of India、Africanews |
+| 联合国机构 | UN News（英文、中文） |
+| 官方媒体（界面中标注） | CGTN、塔斯社、中国新闻网 |
+| 中文媒体 | BBC 中文、DW 中文、RFI 华语 |
 | 灾害与空间 | USGS 地震、GDACS（欧盟委员会/联合国）、NASA EONET、CelesTrak |
 | 底图与边界 | NASA Blue Marble / Black Marble（经 three-globe 示例）、Natural Earth |
 
@@ -72,4 +72,4 @@ npm test             # 定位 / 分类 / 解析 / 聚合 单元测试
 
 ## English summary
 
-Static site + scheduled GitHub Action. The Action pulls ~25 RSS feeds plus USGS/GDACS/EONET/CelesTrak, geolocates headlines with a bilingual Natural-Earth gazetteer, classifies them with transparent keyword rules, clusters multi-outlet coverage and publishes `data/latest.json` with the esbuild-bundled three.js/globe.gl front-end to GitHub Pages. Enable Pages with *Source: GitHub Actions*, then run the workflow.
+Static site + scheduled GitHub Action. The Action pulls ~20 RSS feeds plus USGS/GDACS/EONET/CelesTrak, geolocates headlines with a bilingual Natural-Earth gazetteer, classifies them with transparent keyword rules, clusters multi-outlet coverage and publishes `data/latest.json` with the esbuild-bundled three.js/globe.gl front-end to GitHub Pages. Enable Pages with *Source: GitHub Actions*, then run the workflow.

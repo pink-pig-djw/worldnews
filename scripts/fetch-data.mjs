@@ -30,7 +30,7 @@ function args() {
     prevUrl: get('prev-url', process.env.PREV_DATA_URL || null),
     windowHours: Number(get('window', 48)),
     fixtures: get('fixtures', null),
-    maxPerSource: Number(get('max-per-source', 80)),
+    maxPerSource: Number(get('max-per-source', 45)),
   };
 }
 

@@ -12,7 +12,7 @@ function sniffCharset(buf, contentType) {
  * GET a URL and decode it to text, honouring the feed's declared charset (GBK, Big5, ...).
  * Retries once on network errors and 5xx responses.
  */
-export async function fetchText(url, { timeoutMs = 20000, accept, retries = 1 } = {}) {
+export async function fetchText(url, { timeoutMs = 15000, accept, retries = 1 } = {}) {
   let lastErr;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
@@ -46,7 +46,8 @@ export async function fetchText(url, { timeoutMs = 20000, accept, retries = 1 } 
       return text.replace(/^﻿/, '');
     } catch (err) {
       lastErr = err;
-      if (err.status && err.status < 500) break;
+      // client errors and timeouts will not get better on an immediate retry
+      if ((err.status && err.status < 500) || err.name === 'TimeoutError') break;
     }
   }
   throw lastErr;

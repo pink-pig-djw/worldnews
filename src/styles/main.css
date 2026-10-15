@@ -91,6 +91,8 @@ a { color: inherit; }
 }
 .mk-news .mk-core .ico { filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35)); }
 .mk-news.is-multi .mk-core { box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.8), 0 0 0 4px color-mix(in srgb, var(--c) 30%, transparent), 0 0 12px 1px color-mix(in srgb, var(--c) 75%, transparent), 0 0 34px 6px color-mix(in srgb, var(--c) 32%, transparent); }
+.mk-news.is-minor .mk-core { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55), 0 0 8px 1px color-mix(in srgb, var(--c) 60%, transparent); opacity: 0.85; }
+.mk-news.is-minor::before { width: 30px; height: 30px; }
 .mk-halo { position: absolute; left: 0; top: 0; width: var(--s); height: var(--s); translate: -50% -50%; border-radius: 50%; border: 2px solid var(--c); opacity: 0; pointer-events: none; }
 .mk.is-fresh .mk-halo { animation: halo 2.2s cubic-bezier(0.2, 0.6, 0.3, 1) infinite; }
 .mk.is-severe:not(.is-fresh) .mk-halo { animation: halo 3.4s cubic-bezier(0.2, 0.6, 0.3, 1) infinite; }
@@ -151,7 +153,7 @@ html[lang="zh-CN"] .country-label { letter-spacing: 0.22em; font-size: 11px; fon
 .mag { width: 38px; height: 30px; border-radius: 9px; display: grid; place-items: center; font: 800 13px var(--mono); color: #1b1203; background: var(--c); flex: none; }
 
 /* ---------- detail ---------- */
-.d-head { padding: 18px 18px 10px; position: sticky; top: 0; z-index: 2; background: linear-gradient(180deg, var(--glass-strong) 70%, transparent); }
+.d-head { padding: 18px 18px 12px; position: sticky; top: 0; z-index: 2; background: rgba(10, 14, 24, 0.96); border-bottom: 1px solid var(--line); }
 .d-top { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; font-weight: 600; letter-spacing: 0.04em; }
 .d-top .badge { --c: var(--accent); }
 .d-close { margin-left: auto; width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.04); display: grid; place-items: center; color: var(--text-2); cursor: pointer; }
@@ -319,6 +321,8 @@ html[lang="zh-CN"] .country-label { letter-spacing: 0.22em; font-size: 11px; fon
   .sidebar, .detail { left: 0; right: 0; bottom: 0; border-radius: 22px 22px 0 0; max-height: none; border-bottom: 0; padding-bottom: calc(var(--tabbar-h) + 20px + var(--safe-b)); height: var(--sheet-h, 64vh); transition: height 0.32s cubic-bezier(0.2, 0.9, 0.3, 1); }
   .sidebar.dragging, .detail.dragging { transition: none; }
   .detail { z-index: 45; height: var(--sheet-h, 58vh); animation: sheetUp 0.38s cubic-bezier(0.2, 0.9, 0.3, 1); }
+  /* opened from a list: cover the list sheet completely instead of stacking two handles */
+  .app:not([data-tab="map"]) .detail { height: var(--sheet-h, 64vh); }
   @keyframes sheetUp { from { transform: translateY(40%); opacity: 0.4; } }
   .sheet-handle { display: block; flex: none; height: 22px; cursor: grab; touch-action: none; position: relative; }
   .sheet-handle::after { content: ""; position: absolute; left: 50%; top: 9px; width: 40px; height: 5px; border-radius: 3px; translate: -50% 0; background: rgba(255, 255, 255, 0.25); }

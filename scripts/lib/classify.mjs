@@ -7,11 +7,13 @@ const BASE_SEVERITY = { conflict: 0.55, disaster: 0.5, unrest: 0.45, society: 0.
 
 // [category, subtype, weight, englishRegex, chineseRegex]
 const RULES = [
-  ['conflict', 'airstrike', 3, /\bair ?(?:strikes?|raids?)\b|\bbombard(?:s|ed|ment)?\b|\bwarplanes?\b|\bfighter jets?\b|\bbomb(?:s|ed|ing)\b(?! threat)|\b(?:israeli|russian|us|u\.s\.|ukrainian|deadly|retaliatory|military|pakistani|indian|saudi|turkish) strikes?\b|\bstrikes? (?:kill|hit|target|on)\b/i, /空袭|轰炸|战机|空中打击|军事打击/],
+  ['conflict', 'airstrike', 3, /\bair ?(?:strikes?|raids?)\b|\bbombard(?:s|ed|ment)?\b|\bwarplanes?\b|\bfighter jets?\b|\bbomb(?:s|ed|ing)\b(?! threat)|\b(?:israeli|russian|us|u\.s\.|ukrainian|deadly|retaliatory|military|pakistani|indian|saudi|turkish) strikes?\b|\bstrikes? (?:kill|hit|target|on)\b|\b\d[\d,]* (?:air ?)?strikes\b/i, /空袭|轰炸|战机|空中打击|军事打击/],
+  ['conflict', 'clash', 1.5, /\bhouthis?\b|\bhamas\b|\bhezbollah\b|\btaliban\b|\brsf\b|\bal-shabaab?\b|\bboko haram\b|\bm23\b|\bisis\b|\bislamic state\b|\bwagner\b/i, /胡塞|哈马斯|真主党|塔利班|快速支援部队|青年党|博科圣地|伊斯兰国|瓦格纳/],
+  ['conflict', 'clash', 1.2, /\bkill(?:s|ed|ing)\b|\bdead\b|\bcasualties\b/i, /打死|炸死|伤亡/],
   ['conflict', 'missile', 3, /\bmissiles?\b|\brockets?\b(?! launch)|\bballistic\b|\binterceptors?\b|\biron dome\b|\bhypersonic\b/i, /导弹|火箭弹|拦截|弹道/],
   ['conflict', 'drone', 3, /\bdrones?\b|\buavs?\b|\bshahed\b|\bkamikaze\b/i, /无人机/],
   ['conflict', 'shelling', 3, /\bshell(?:ing|ed|s)\b|\bartillery\b|\bmortars?\b/i, /炮击|炮火|炮弹/],
-  ['conflict', 'clash', 2.5, /\bclash(?:es|ed)?\b|\bfighting\b|\bbattles?\b|\boffensive\b|\bfront ?line\b|\btroops\b|\bsoldiers?\b|\bmilitias?\b|\brebels?\b|\binsurgen(?:ts?|cy)\b|\bgunfire\b|\bfirefight\b|\bambush(?:ed)?\b|\bsiege\b|\binva(?:sion|ded?|des)\b|\bwar(?:s|fare)?\b|\bcombat\b|\bparamilitar(?:y|ies)\b|\bjihadists?\b/i, /冲突|交火|战斗|激战|战事|前线|部队|军队|士兵|武装分子|叛军|民兵|围困|入侵|战争|战火|武装/],
+  ['conflict', 'clash', 2.5, /\bclash(?:es|ed)?\b|\bfighting\b|\bbattles?\b|\boffensive\b|\bfront ?line\b|\btroops\b|\bsoldiers?\b|\bmilitias?\b|\brebels?\b|\binsurgen(?:ts?|cy)\b|\bgunfire\b|\bfirefight\b|\bambush(?:ed)?\b|\bsiege\b|\binva(?:sion|ded?|des)\b|\bwar(?:s|fare)?\b|\bparamilitar(?:y|ies)\b|\bjihadists?\b/i, /冲突|交火|战斗|激战|战事|前线|部队|军队|士兵|武装分子|叛军|民兵|围困|入侵|战争|战火|武装/],
   ['conflict', 'attack', 3, /\battack(?:s|ed|ing)?\b|\bbomb(?:ing|er)s?\b|\bsuicide\b|\bexplosions?\b|\bblasts?\b|\bgunmen\b|\bterror(?:ist|ism|ists)?\b|\bmilitants?\b|\bied\b|\bcar bomb\b|\bmassacre\b|\bassassinat(?:ed|ion)\b/i, /袭击|恐袭|恐怖|爆炸|枪手|自杀式|屠杀|暗杀/],
   ['conflict', 'naval', 2, /\bwarships?\b|\bnav(?:y|al)\b|\bdestroyers?\b|\bfrigates?\b|\bsubmarines?\b|\baircraft carriers?\b|\bcoast ?guard\b|\b(?:tanker|vessel|ship)s? (?:seized|attacked|hit)\b/i, /军舰|海军|驱逐舰|护卫舰|潜艇|航母|海警/],
   ['conflict', 'ceasefire', 4, /\bcease-?fire\b|\btruce\b|\bpeace (?:talks|deal|plan|agreement|process|summit|negotiations)\b|\barmistice\b|\bhostages?\b|\bprisoner (?:swap|exchange)\b|\bdemilitari[sz]ed\b/i, /停火|休战|和谈|和平协议|和平计划|和平进程|人质|换俘|停战/],
@@ -20,7 +22,7 @@ const RULES = [
 
   ['disaster', 'quake', 4, /\bearthquakes?\b|\bquakes?\b|\btremors?\b|\baftershocks?\b|\bmagnitude[- ]\d|\bseismic\b|\btsunamis?\b/i, /地震|余震|震级|海啸/],
   ['disaster', 'flood', 4, /\bfloods?\b|\bflooding\b|\bflash floods?\b|\bdeluge\b|\btorrential\b|\bmonsoon\b|\binundat/i, /洪水|洪灾|水灾|暴雨|内涝|洪涝/],
-  ['disaster', 'storm', 4, /\bhurricanes?\b|\btyphoons?\b|\bcyclones?\b|\btropical (?:storm|depression)\b|\bstorm [A-Z][a-z]+\b|\btornado(?:es)?\b|\bblizzards?\b|\bsevere weather\b/i, /台风|飓风|气旋|风暴|龙卷风|暴风雪|热带风暴/],
+  ['disaster', 'storm', 4, /\bhurricanes?\b|\btyphoons?\b|\bcyclones?\b|\btropical (?:storm|depression)\b|\b[Ss]torm (?!Shadow)[A-Z][a-z]+\b|\btornado(?:es)?\b|\bblizzards?\b|\bsevere weather\b/i, /台风|飓风|气旋|风暴|龙卷风|暴风雪|热带风暴/],
   ['disaster', 'fire', 3.5, /\bwildfires?\b|\bbushfires?\b|\bforest fires?\b|\bblazes?\b|\bfire (?:kills|breaks out|engulfs|rages|destroys)\b|\b(?:deadly|huge|massive) fire\b/i, /山火|野火|森林火灾|大火|火灾|起火/],
   ['disaster', 'volcano', 4, /\bvolcano(?:es)?\b|\bvolcanic\b|\beruptions?\b|\blava\b|\bash (?:cloud|plume)\b/i, /火山|喷发|岩浆/],
   ['disaster', 'heat', 3, /\bheat ?waves?\b|\bextreme heat\b|\bdroughts?\b|\brecord (?:temperatures|heat)\b|\bscorching\b/i, /热浪|高温|干旱|旱灾|酷热/],
