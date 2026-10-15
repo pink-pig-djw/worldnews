@@ -1,0 +1,19 @@
+# Temporary: probe candidate local-media feeds (removed after the test).
+name: Probe local media feeds
+on:
+  push:
+    paths: [".github/workflows/debug-feeds.yml", "tools/probe/**"]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node tools/probe/feeds.mjs
