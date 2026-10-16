@@ -165,7 +165,11 @@ async function fetchHazards(prev) {
     track('gdacs', async () => normalizeGdacs(await load('xml', 'gdacs', HAZARD_SOURCES.gdacs.url), now)),
     track('eonet', async () => normalizeEonet(await load('json', 'eonet', HAZARD_SOURCES.eonet.url), now)),
   ]);
-  const hazards = mergeHazards(gdacs ?? (prev?.hazards || []).filter((h) => h.source === 'gdacs'), eonet ?? (prev?.hazards || []).filter((h) => h.source === 'eonet'));
+  let hazards = mergeHazards(gdacs ?? (prev?.hazards || []).filter((h) => h.source === 'gdacs'), eonet ?? (prev?.hazards || []).filter((h) => h.source === 'eonet'));
+  // GDACS lists well over a hundred small (green) wildfires; the newest 40 are plenty for the map
+  const minorFires = hazards.filter((h) => h.type === 'fire' && h.alert !== 'red' && h.alert !== 'orange').sort((a, b) => b.time - a.time);
+  const dropped = new Set(minorFires.slice(40).map((h) => h.id));
+  hazards = hazards.filter((h) => !dropped.has(h.id));
   // Chinese wording, rebuilt from each alert's parts (see lib/zh.mjs)
   for (const h of hazards) h.zh = zh.hazard(h);
   const qs = quakes ?? prev?.quakes ?? [];
