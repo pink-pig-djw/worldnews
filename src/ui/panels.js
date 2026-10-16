@@ -54,7 +54,7 @@ function sourceLabel(e, store) {
 }
 
 /** One line per event in lists. */
-export function eventRow(e, store, { showPlace = true, rank = null } = {}) {
+export function eventRow(e, store, { showPlace = true, rank = null, extra = '' } = {}) {
   const now = Date.now() / 1000;
   const c = CAT[e.cat] || CAT.other;
   const s = eventStory(e);
@@ -65,7 +65,7 @@ export function eventRow(e, store, { showPlace = true, rank = null } = {}) {
     ${rank != null ? `<span class="rank">${rank}</span>` : ''}
     <span class="row-ico">${icon(SUB_ICON[e.sub] || c.icon, 15)}</span>
     <span class="row-main"><span class="row-title" lang="${s.lang === 'zh' || title !== s.title ? 'zh-CN' : 'en'}">${e.fresh ? `<span class="new-badge">${esc(t().newBadge)}</span>` : ''}${esc(title)}</span>
-    <span class="row-meta">${place}<span class="srcs">${esc(sourceLabel(e, store))}</span><span class="sep">·</span><span>${esc(timeAgo(e.l, now))}</span>${trend}${e.gap ? `<span class="gap-tag">${icon('flag', 10)}${esc(t().gap)}</span>` : ''}</span></span>
+    <span class="row-meta">${place}<span class="srcs">${esc(sourceLabel(e, store))}</span><span class="sep">·</span><span>${esc(timeAgo(e.l, now))}</span>${trend}${e.gap ? `<span class="gap-tag">${icon('flag', 10)}${esc(t().gap)}</span>` : ''}</span>${extra}</span>
     <span class="row-side">${sevBars(e.sev, e.cat)}</span>
   </button>`;
 }
@@ -230,7 +230,7 @@ export function timelineNodes(e) {
   const nodes = [...(e.tl || [])];
   if (nodes.length < 2) return [];
   // the newest report closes the timeline when it came well after the last node
-  const newest = e.reports.reduce((a, b) => (b.time > a.time ? b : a), e.reports[0]);
+  const newest = (e.reports || []).reduce((a, b) => (b.time > a.time ? b : a), e.reports?.[0]);
   const last = nodes[nodes.length - 1];
   if (newest && newest.time - last.t > 1800 && !nodes.some((n) => n.id === newest.id)) {
     nodes.push({ t: newest.time, k: 'latest', id: newest.id, s: newest.source, h: newest.title, l: newest.lang, u: newest.url });
@@ -433,6 +433,64 @@ export function hazardDetail(h, store) {
     <div class="actions"><a class="btn" href="${safeUrl(h.url)}" target="_blank" rel="noopener noreferrer">${icon('external', 15)}${h.source === 'gdacs' ? 'GDACS' : 'NASA'}</a>
     <button class="btn secondary" data-action="copy">${icon('link', 15)}${esc(t().copyLink)}</button></div>
     ${relatedEvents(h, store, { storm: 'storm', flood: 'flood', volcano: 'volcano', fire: 'fire', landslide: 'landslide' }[h.type])}`;
+}
+
+// ---------------------------------------------------------------- since your last visit
+function changeChips(what) {
+  const C = t().ch;
+  const label = (c) =>
+    c.k === 'toll' ? C.toll(c.from, c.to) : c.k === 'confirmed' ? C.confirmed(c.to) : c.k === 'spread' ? C.spread(c.from, c.to) : c.k === 'sev' ? C.sev(t().sev[c.from], t().sev[c.to]) : C.alert(t().alertLevel[c.from] || c.from, t().alertLevel[c.to] || c.to);
+  return `<span class="row-change">${what.map((c) => `<span class="ch ch-${c.k}">${esc(label(c))}</span>`).join('')}</span>`;
+}
+
+function archivedRow(e) {
+  const c = CAT[e.cat] || CAT.other;
+  const title = getLang() === 'zh' ? e.ti?.zh || e.ti?.en : e.ti?.en || e.ti?.zh;
+  return `<button class="row ev-row" data-action="archived" data-id="${esc(e.id)}" style="--c:${c.color}">
+    <span class="row-ico">${icon(SUB_ICON[e.sub] || c.icon, 15)}</span>
+    <span class="row-main"><span class="row-title">${esc(title || '')}</span>
+    <span class="row-meta"><span class="srcs">${esc(t().voicesShort(e.v))}</span><span class="sep">·</span><span>${esc(fmtTime(e.f))} – ${esc(fmtTime(e.l))}</span></span></span>
+    <span class="row-side">${sevBars(e.sev, e.cat)}</span>
+  </button>`;
+}
+
+export function sinceDetail(diff, store) {
+  const S = t().since;
+  const sec = (ico, title, n, body) => (n ? `<div class="section-h">${icon(ico, 13)} ${esc(title)} · ${n}</div>${body}` : '');
+  const any = diff.newEvents.length + diff.changes.length + diff.heating.length + diff.archived.length;
+  return `<div class="d-head">
+      <div class="d-top"><span class="badge">${icon('sparkle', 11)}${esc(S.title)}</span>${closeBtn()}</div>
+      <h2 class="d-title ev-title">${esc(S.headline(timeAgo(diff.left)))}</h2>
+      <div class="d-sub">${esc(S.lastSeen(fmtTime(diff.left)))}</div>
+    </div>
+    <div class="stats">
+      <div class="stat"><b>${diff.newEvents.length}</b><span>${esc(S.newShort)}</span></div>
+      <div class="stat"><b>${diff.changes.length}</b><span>${esc(S.changedShort)}</span></div>
+      <div class="stat"><b>${diff.heating.length}</b><span>${esc(S.heatingShort)}</span></div>
+    </div>
+    ${any ? '' : `<div class="empty">${esc(S.none)}</div>`}
+    ${sec('alert', S.changed, diff.changes.length, diff.changes.slice(0, 10).map((c) => eventRow(c.e, store, { extra: changeChips(c.what) })).join(''))}
+    ${sec('sparkle', S.new, diff.newEvents.length, eventRows(diff.newEvents, store, { limit: 12 }))}
+    ${sec('up', S.heating, diff.heating.length, diff.heating.slice(0, 8).map((e) => eventRow(e, store)).join(''))}
+    ${sec('history', S.away, diff.archived.length, diff.archived.map(archivedRow).join(''))}
+    <p class="hint" style="margin-top:12px">${esc(S.note)}</p>`;
+}
+
+/** An event whose reports have left the 48-hour window: headline, scores, timeline. */
+export function archivedEventDetail(e, store) {
+  const title = getLang() === 'zh' ? e.ti?.zh || e.ti?.en : e.ti?.en || e.ti?.zh;
+  const p = e.place;
+  const cc = isRealCc(p?.cc) ? p.cc : null;
+  const where = p ? `${cc ? `${flag(cc)} ` : ''}${esc(placeName(p))}${cc && p.kind !== 'country' ? ` · ${esc(countryName(cc))}` : ''}` : '';
+  return `<div class="d-head">
+      <div class="d-top">${catTag(e)}<span>${esc(t().since.ended)}</span>${closeBtn()}</div>
+      <h2 class="d-title ev-title">${esc(title || '')}</h2>
+      ${where ? `<div class="ev-where">${icon('pin', 13)}<span>${where}</span></div>` : ''}
+    </div>
+    ${meters(e)}
+    ${credibility(e)}
+    ${timeline(e, store)}
+    <p class="hint">${esc(t().since.archivedNote)}</p>`;
 }
 
 export function satDetail(sat) {

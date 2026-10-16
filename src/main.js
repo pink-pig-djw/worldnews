@@ -11,7 +11,8 @@ import { eventStory, eventTitle, quakePlace } from './data/localize.js';
 import { disableTranslation, enableTranslation, initTranslation, translateFirst, translateNow, translateStories } from './data/translate.js';
 import { icon } from './ui/icons.js';
 import { feedTab, hazardsTab, hotTab, settingsTab } from './ui/lists.js';
-import { clockHtml, clusterDetail, countryDetail, eventDetail, hazardDetail, placeDetail, quakeDetail, satDetail, satKv, timelineNodes } from './ui/panels.js';
+import { archivedEventDetail, clockHtml, clusterDetail, countryDetail, eventDetail, hazardDetail, placeDetail, quakeDetail, satDetail, satKv, sinceDetail, timelineNodes } from './ui/panels.js';
+import { archivedSince, diffSince, hasNews, previousVisit, rememberVisit, touchVisit } from './data/visit.js';
 import { pickWorldNow, worldNowHtml, worldNowStrip } from './ui/worldnow.js';
 
 // ---------------------------------------------------------------- settings
@@ -710,6 +711,10 @@ function reopenCurrent() {
   } else if (c.type === 'sat') {
     const pos = satellites.positions().find((s) => s.id === c.id);
     if (pos) openDetail(satDetail(pos), true);
+  } else if (c.type === 'since' && visit.diff) openDetail(sinceDetail(visit.diff, store), true);
+  else if (c.type === 'archived') {
+    const e = visit.archiveById.get(c.id);
+    if (e) openDetail(archivedEventDetail(e, store), true);
   }
 }
 
@@ -720,6 +725,7 @@ detail.addEventListener('click', async (e) => {
   if (action === 'close') closeDetail();
   else if (action === 'country') selectCountry(a.dataset.cc);
   else if (action === 'event') selectEvent(store.event(a.dataset.id));
+  else if (action === 'archived') openArchived(a.dataset.id);
   else if (action === 'quake') selectQuake((store.raw.quakes || []).find((q) => q.id === a.dataset.id));
   else if (action === 'hazard') selectHazard((store.raw.hazards || []).find((h) => h.id === a.dataset.id));
   else if (action === 'place') {
@@ -936,12 +942,12 @@ function renderWorldNow() {
     if (!wn.phoneOpen) strip.innerHTML = worldNowStrip(wn.items, wn.idx);
     card.hidden = !wn.phoneOpen;
     card.classList.remove('collapsed');
-    if (wn.phoneOpen) card.innerHTML = worldNowHtml(wn.items, store);
+    if (wn.phoneOpen) card.innerHTML = worldNowHtml(wn.items, store, { since: sinceBlock() });
   } else {
     strip.hidden = true;
     card.hidden = false;
     card.classList.toggle('collapsed', wn.collapsed);
-    card.innerHTML = worldNowHtml(wn.items, store, { collapsed: wn.collapsed });
+    card.innerHTML = worldNowHtml(wn.items, store, { collapsed: wn.collapsed, since: sinceBlock() });
   }
 }
 $('#worldnow').addEventListener('click', (e) => {
@@ -950,6 +956,13 @@ $('#worldnow').addEventListener('click', (e) => {
   if (a.dataset.action === 'event') {
     wn.phoneOpen = false;
     selectEvent(store.event(a.dataset.id));
+  } else if (a.dataset.action === 'since-dismiss') {
+    e.stopPropagation();
+    visit.dismissed = true;
+    renderWorldNow();
+  } else if (a.dataset.action === 'since-open') {
+    wn.phoneOpen = false;
+    openSince();
   } else if (a.dataset.action === 'wn-gaps') {
     wn.phoneOpen = false;
     setTab('hot');
@@ -976,6 +989,88 @@ setInterval(() => {
   wn.idx = (wn.idx + 1) % wn.items.length;
   $('#wn-strip').innerHTML = worldNowStrip(wn.items, wn.idx);
 }, 6000);
+
+// ---------------------------------------------------------------- since your last visit
+// Compared once, right after the first data load; the snapshot is refreshed on every update and
+// when the page is hidden, so the next visit compares with what was last on screen.
+const visit = { prev: previousVisit(), diff: null, dismissed: false, archive: null, archiveById: new Map() };
+
+function sinceBlock() {
+  const d = visit.diff;
+  if (!hasNews(d) || visit.dismissed) return '';
+  const summary = t().since.summary(d.newEvents.length, d.changes.length, d.heating.length) || t().since.away;
+  return `<div class="wn-since" data-action="since-open" role="button">${icon('sparkle', 16)}
+    <span class="wn-since-main"><b>${esc(t().since.card(timeAgo(d.left)))}</b>${esc(summary)}</span>
+    <button class="wn-since-x" data-action="since-dismiss" title="${esc(t().since.dismiss)}">${icon('x', 13)}</button></div>`;
+}
+
+async function loadArchive() {
+  if (visit.archive) return visit.archive;
+  try {
+    const a = await getJson(`data/events.json?t=${Math.floor(Date.now() / 300000)}`, 'default');
+    const dict = a.places || {};
+    for (const e of a.events || []) {
+      const p = dict[e.loc];
+      e.place = p ? { id: e.loc, name: p[0], zh: p[1], cc: p[2], lat: p[3], lng: p[4], kind: p[5] } : null;
+      visit.archiveById.set(e.id, e);
+    }
+    for (const [from, to] of Object.entries(a.aliases || {})) if (!visit.archiveById.has(from) && visit.archiveById.has(to)) visit.archiveById.set(from, visit.archiveById.get(to));
+    visit.archive = a;
+  } catch {
+    visit.archive = { events: [] };
+  }
+  return visit.archive;
+}
+
+function compareWithLastVisit() {
+  if (!visit.prev || !store.raw) return;
+  visit.diff = diffSince(visit.prev, store);
+  const away = Date.now() / 1000 - visit.prev.left;
+  const show = () => {
+    renderWorldNow();
+    if (!hasNews(visit.diff)) return;
+    const d = visit.diff;
+    const summary = t().since.summary(d.newEvents.length, d.changes.length, d.heating.length) || t().since.away;
+    // phones have no card on screen: say it once, after the loading screen has gone
+    if (isMobile()) setTimeout(() => toast(t().since.toast(summary), 9000, { onClick: openSince, live: true }), 3200);
+  };
+  if (away > 47 * 3600) {
+    // events can only have come and gone entirely while the reader was away for two days or more
+    loadArchive().then((a) => {
+      visit.diff.archived = archivedSince(visit.prev, a, store);
+      show();
+    });
+  } else show();
+}
+
+function openSince() {
+  if (!visit.diff) return;
+  stopTour();
+  ui.current = { type: 'since' };
+  markers.select({});
+  view.setSelectedCountry(null);
+  openDetail(sinceDetail(visit.diff, store));
+  setHash('');
+}
+
+function openArchived(id) {
+  const e = visit.archiveById.get(id);
+  if (!e) return;
+  stopTour();
+  ui.current = { type: 'archived', id: e.id, lat: e.place?.lat, lng: e.place?.lng };
+  markers.select({});
+  view.setSelectedCountry(null);
+  if (e.place?.lat != null) fly(e.place.lat, e.place.lng, Math.min(view.altitude, altitudeFor(e.place.kind, e.place.cc)));
+  openDetail(archivedEventDetail(e, store));
+  translateFirst(timelineNodes(e).filter((n) => n.k !== 'alert').map((n) => ({ id: n.id, title: n.h, lang: n.l })));
+  renderRings();
+  setHash(`e=${encodeURIComponent(e.id)}`);
+}
+
+setInterval(() => {
+  if (!document.hidden && store.raw) touchVisit();
+}, 60000);
+addEventListener('pagehide', () => rememberVisit(store));
 
 // ---------------------------------------------------------------- ticker
 let tickerItems = [];
@@ -1205,7 +1300,15 @@ function openFromHash() {
   const m = /^#([epcqhs])=(.+)$/.exec(location.hash);
   if (!m) return false;
   const id = decodeURIComponent(m[2]);
-  if (m[1] === 'e') selectEvent(store.event(id));
+  if (m[1] === 'e') {
+    const e = store.event(id);
+    if (e) selectEvent(e);
+    else {
+      // a shared link to an event whose reports have aged out: its archive entry
+      loadArchive().then(() => openArchived(id));
+      return true;
+    }
+  }
   else if (m[1] === 'p') selectPlace(store.view.placeById.get(id));
   else if (m[1] === 'c') selectCountry(id);
   else if (m[1] === 'q') selectQuake((store.raw.quakes || []).find((q) => q.id === id));
@@ -1297,6 +1400,8 @@ function applyData(raw, initial) {
   renderPaths();
   $('#sample-banner').hidden = !raw.sample;
   if (!initial) announce(diff);
+  else compareWithLastVisit();
+  rememberVisit(store);
 }
 
 /** New reports: a burst of light where their events are, a toast linking to the top event, a tab badge. */
@@ -1375,7 +1480,7 @@ function startLiveUpdates() {
     store.expireFresh();
   }, 5000);
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) return;
+    if (document.hidden) return rememberVisit(store);
     live.unseen = 0;
     updateTitle();
     if (Date.now() - live.lastCheck > 20000) checkForUpdates();

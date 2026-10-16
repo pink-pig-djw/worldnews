@@ -349,6 +349,18 @@ html[lang="zh-CN"] .country-label { letter-spacing: 0.22em; font-size: 11px; fon
 .wn-day .gap b { color: #ffb4a8; }
 .worldnow.collapsed .wn-day { display: none; }
 .wn-strip { display: none; }
+.wn-since { display: flex; align-items: center; gap: 10px; margin: 0 10px 10px; padding: 9px 10px; border-radius: 12px; cursor: pointer; background: linear-gradient(90deg, rgba(92, 200, 255, 0.14), rgba(92, 200, 255, 0.05)); border: 1px solid rgba(92, 200, 255, 0.3); }
+.wn-since:hover { background: linear-gradient(90deg, rgba(92, 200, 255, 0.2), rgba(92, 200, 255, 0.08)); }
+.wn-since > .ico { flex: none; color: var(--accent); }
+.wn-since-main { flex: 1; min-width: 0; font-size: 12px; line-height: 1.4; color: var(--text-2); }
+.wn-since-main b { display: block; font-size: 12.5px; color: #e3f5ff; }
+.wn-since-x { flex: none; width: 24px; height: 24px; border-radius: 7px; border: 0; background: none; color: var(--muted); display: grid; place-items: center; cursor: pointer; }
+.wn-since-x:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
+.row-change { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+.ch { font-size: 11px; line-height: 17px; padding: 0 7px; border-radius: 6px; color: var(--text-2); background: rgba(255, 255, 255, 0.06); border: 1px solid var(--line); }
+.ch-toll { color: #ffb4a8; border-color: rgba(255, 110, 90, 0.35); background: rgba(255, 90, 70, 0.1); }
+.ch-confirmed, .ch-spread { color: #bfe8ff; border-color: rgba(92, 200, 255, 0.3); }
+.ch-alert, .ch-sev { color: #ffcf7a; border-color: rgba(255, 176, 46, 0.35); }
 
 /* ---------- timeline ---------- */
 .tl { margin: 2px 18px 0; }

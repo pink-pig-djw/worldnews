@@ -354,7 +354,12 @@ async function main() {
   const json = JSON.stringify(data);
   writeFileSync(join(opts.out, 'latest.json'), json);
   // events of the past 15 days that have left the 48-hour window ("since your last visit")
-  const archive = { version: 1, generated, events: ev.archive, aliases: ev.aliases };
+  const archivePlaces = {};
+  for (const e of ev.archive) {
+    const p = e.loc && PLACE_BY_ID.get(e.loc);
+    if (p) archivePlaces[p.id] = [p.name || '', p.zh || '', p.cc || null, p.lat, p.lng, p.kind];
+  }
+  const archive = { version: 1, generated, places: archivePlaces, events: ev.archive.map(({ nw, r6, ...e }) => e), aliases: ev.aliases };
   writeFileSync(join(opts.out, 'events.json'), JSON.stringify(archive));
   // the pipeline's memory for the next run
   writeFileSync(join(opts.out, 'state.json'), JSON.stringify({ ...ev.state, generated }));
