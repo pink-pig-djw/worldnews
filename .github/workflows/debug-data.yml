@@ -1,0 +1,32 @@
+name: Debug - dump live data to log (temporary)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Fetch on top of the published window
+        run: |
+          export PREV_DATA_URL="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/data/latest.json"
+          node scripts/fetch-data.mjs --out out
+      - name: Dump
+        run: |
+          node -e '
+            const d = JSON.parse(require("fs").readFileSync("out/latest.json", "utf8"));
+            for (const s of d.stories) delete s.image;
+            delete d.satellites;
+            require("fs").writeFileSync("slim.json", JSON.stringify(d));
+          '
+          gzip -9 -c slim.json | base64 -w 3000 > dump.txt
+          echo "DUMP-LINES $(wc -l < dump.txt) BYTES $(wc -c < slim.json)"
+          sed 's/^/DUMP:/' dump.txt
+          echo "DUMP-END"
