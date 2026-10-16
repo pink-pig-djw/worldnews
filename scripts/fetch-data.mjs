@@ -367,7 +367,14 @@ async function main() {
   writeFileSync(join(opts.out, 'events.json'), JSON.stringify(archive));
   // the pipeline's memory for the next run
   writeFileSync(join(opts.out, 'state.json'), JSON.stringify({ ...ev.state, generated }));
-  writeFileSync(join(opts.out, 'status.json'), JSON.stringify({ generated: data.generated, stats: data.stats, sources: health, hazardSources: hz.health }, null, 1));
+  // the site's code version, so open pages notice a new release (see build-site.mjs)
+  let app = null;
+  try {
+    app = JSON.parse(readFileSync(join(opts.out, '..', 'version.json'), 'utf8')).app;
+  } catch {
+    /* data built without the site */
+  }
+  writeFileSync(join(opts.out, 'status.json'), JSON.stringify({ generated: data.generated, app, stats: data.stats, sources: health, hazardSources: hz.health }, null, 1));
 
   // Run report (shows up in the Actions log)
   const okSources = health.filter((h) => h.ok).length;

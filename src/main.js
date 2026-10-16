@@ -1361,10 +1361,22 @@ async function loadInitial() {
 }
 
 /** Minute check: download only when the server has a newer version. */
+// This page's code version (index.html loads app.js?v=<version>); status.json names the deployed one.
+const APP_VERSION = new URL(document.querySelector('script[src*="app.js"]')?.src || location.href).searchParams.get('v');
+function noticeNewRelease(app) {
+  if (!app || !APP_VERSION || app === APP_VERSION || live.release) return;
+  live.release = app;
+  // a background tab just reloads; otherwise offer it, so nobody loses their place
+  if (document.hidden) return location.reload();
+  toast(t().newRelease, 20000, { onClick: () => location.reload() });
+  document.addEventListener('visibilitychange', () => document.hidden && location.reload(), { once: true });
+}
+
 function checkForUpdates() {
   live.pending ||= (async () => {
     try {
       const status = await fetchStatus();
+      noticeNewRelease(status?.app);
       const version = status?.generated;
       if (store.raw && version && (version === store.raw.generated || version === live.staleVersion)) {
         ui.loadFailed = false;
