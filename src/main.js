@@ -8,10 +8,11 @@ import { createSatellites } from './globe/satellites.js';
 import { $, $$, esc, toast } from './ui/dom.js';
 import { normalizeUsgs } from '../scripts/lib/usgs.mjs';
 import { eventStory, eventTitle, quakePlace } from './data/localize.js';
-import { disableTranslation, enableTranslation, initTranslation, translateNow, translateStories } from './data/translate.js';
+import { disableTranslation, enableTranslation, initTranslation, translateFirst, translateNow, translateStories } from './data/translate.js';
 import { icon } from './ui/icons.js';
 import { feedTab, hazardsTab, hotTab, settingsTab } from './ui/lists.js';
-import { clockHtml, clusterDetail, countryDetail, eventDetail, hazardDetail, placeDetail, quakeDetail, satDetail, satKv } from './ui/panels.js';
+import { clockHtml, clusterDetail, countryDetail, eventDetail, hazardDetail, placeDetail, quakeDetail, satDetail, satKv, timelineNodes } from './ui/panels.js';
+import { pickWorldNow, worldNowHtml, worldNowStrip } from './ui/worldnow.js';
 
 // ---------------------------------------------------------------- settings
 const DEFAULT_LAYERS = { markers: true, arcs: true, pillars: true, rings: true, quakes: true, hazards: true, sats: true, labels: true, borders: true, clouds: true, terminator: true, heat: false };
@@ -201,6 +202,10 @@ view.g.arcLabel((a) => `${flag(a.from)} ${esc(countryName(a.from))} → ${esc(pl
 
 function handleMapClick(ev, cc) {
   stopTour();
+  if (wn.phoneOpen) {
+    wn.phoneOpen = false;
+    renderWorldNow();
+  }
   const rect = container.getBoundingClientRect();
   const near = markers.nearest(ev.clientX - rect.left, ev.clientY - rect.top, isMobile() ? 34 : 20);
   if (near) {
@@ -456,6 +461,7 @@ function changeLanguage(lang) {
   renderChips();
   renderSide();
   renderTicker(true);
+  renderWorldNow();
   markers.refreshLanguage();
   reopenCurrent();
   setupTranslation();
@@ -485,6 +491,7 @@ function onTranslation(kind) {
     renderSide();
     if (kind !== 'progress') {
       refreshTickerText();
+      renderWorldNow();
       if (ui.current) reopenCurrent();
     }
   }, 400);
@@ -586,6 +593,10 @@ function selectEvent(e, { storyId = null, fromTour = false } = {}) {
   view.setSelectedCountry(p?.kind === 'country' ? p.cc : null);
   if (p?.lat != null) fly(p.lat, p.lng, Math.min(view.altitude, altitudeFor(p.kind, p.cc)));
   openDetail(eventDetail(e, store));
+  // the reports and timeline of the event being read are translated before anything else
+  translateFirst([...e.reports, ...timelineNodes(e).filter((n) => n.k !== 'alert').map((n) => store.storyById.get(n.id) || { id: n.id, title: n.h, lang: n.l })]);
+  wn.phoneOpen = false;
+  renderWorldNow();
   view.setArcs(settings.layers.arcs ? store.view.arcs.slice(0, isMobile() ? 14 : 32) : [], p?.id ?? null);
   renderRings();
   setHash(`e=${encodeURIComponent(e.id)}`);
@@ -757,6 +768,7 @@ function updateOffset() {
 window.addEventListener('resize', () => {
   renderTabs();
   updateOffset();
+  renderWorldNow();
 });
 
 // bottom-sheet dragging (mobile)
@@ -901,6 +913,69 @@ function showMarkerTooltip(item, el) {
 function hideTooltip() {
   tooltip.hidden = true;
 }
+
+// ---------------------------------------------------------------- world now
+// The few events that matter most right now. Desktop: a card at the top right; phones: a strip
+// above the tab bar that cycles through them and opens into the list.
+const wn = { items: [], idx: 0, phoneOpen: false, collapsed: false };
+try {
+  wn.collapsed = localStorage.getItem('wp-wn-collapsed') === '1';
+} catch {
+  /* private mode */
+}
+function renderWorldNow() {
+  wn.items = store.raw ? pickWorldNow(store, 5) : [];
+  const card = $('#worldnow');
+  const strip = $('#wn-strip');
+  if (!wn.items.length) {
+    card.hidden = strip.hidden = true;
+    return;
+  }
+  if (isMobile()) {
+    strip.hidden = wn.phoneOpen;
+    if (!wn.phoneOpen) strip.innerHTML = worldNowStrip(wn.items, wn.idx);
+    card.hidden = !wn.phoneOpen;
+    card.classList.remove('collapsed');
+    if (wn.phoneOpen) card.innerHTML = worldNowHtml(wn.items, store);
+  } else {
+    strip.hidden = true;
+    card.hidden = false;
+    card.classList.toggle('collapsed', wn.collapsed);
+    card.innerHTML = worldNowHtml(wn.items, store, { collapsed: wn.collapsed });
+  }
+}
+$('#worldnow').addEventListener('click', (e) => {
+  const a = e.target.closest('[data-action]');
+  if (!a) return;
+  if (a.dataset.action === 'event') {
+    wn.phoneOpen = false;
+    selectEvent(store.event(a.dataset.id));
+  } else if (a.dataset.action === 'wn-gaps') {
+    wn.phoneOpen = false;
+    setTab('hot');
+    renderWorldNow();
+  } else if (a.dataset.action === 'wn-toggle') {
+    if (isMobile()) wn.phoneOpen = false;
+    else {
+      wn.collapsed = !wn.collapsed;
+      try {
+        localStorage.setItem('wp-wn-collapsed', wn.collapsed ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+    }
+    renderWorldNow();
+  }
+});
+$('#wn-strip').addEventListener('click', () => {
+  wn.phoneOpen = true;
+  renderWorldNow();
+});
+setInterval(() => {
+  if (!isMobile() || wn.phoneOpen || wn.items.length < 2 || document.hidden) return;
+  wn.idx = (wn.idx + 1) % wn.items.length;
+  $('#wn-strip').innerHTML = worldNowStrip(wn.items, wn.idx);
+}, 6000);
 
 // ---------------------------------------------------------------- ticker
 let tickerItems = [];
@@ -1148,6 +1223,7 @@ store.on((reason) => {
   renderLayers();
   renderSide();
   renderTicker(reason === 'data');
+  renderWorldNow();
   if (ui.current) reopenCurrent();
   if (reason !== 'time') queueTranslations();
 });

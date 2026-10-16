@@ -680,6 +680,38 @@ export function buildEvents({ stories, state, now, geo, src, placeById, quakes =
     rec.d = ev;
     events.push(ev);
   }
+  // Reports linked to the same official alert (one storm, one earthquake) are one event, whatever
+  // their wording or language: merge them into the event people may already have seen.
+  const byHazard = new Map();
+  for (const ev of events) {
+    if (!ev.hz) continue;
+    if (!byHazard.has(ev.hz)) byHazard.set(ev.hz, []);
+    byHazard.get(ev.hz).push(ev);
+  }
+  for (const group of byHazard.values()) {
+    if (group.length < 2) continue;
+    group.sort((a, b) => Number(known.has(b.id)) - Number(known.has(a.id)) || b.n - a.n || a.f - b.f);
+    const keep = records.get(group[0].id);
+    const reports = [...(members.get(keep.id) || [])];
+    for (const other of group.slice(1)) {
+      mergeRecords(keep, records.get(other.id));
+      for (const s of members.get(other.id) || []) {
+        s.ev = keep.id;
+        reports.push(s);
+      }
+      members.delete(other.id);
+      records.delete(other.id);
+      aliases.set(other.id, [keep.id, now]);
+      events.splice(events.indexOf(other), 1);
+    }
+    members.set(keep.id, reports);
+    const hz = [...quakes, ...hazards].find((h) => h.id === group[0].hz);
+    const ev = deriveEvent(keep, reports, { now, src, placeById, hazard: hz });
+    keep.d = ev;
+    events[events.indexOf(group[0])] = ev;
+    linked.set(hz.id, ev);
+  }
+
   // "Severe but overlooked" is about places as well as events: a single feature story from Gaza is
   // not overlooked, a massacre in South Sudan that one outlet reports is.
   const coverage = new Map();

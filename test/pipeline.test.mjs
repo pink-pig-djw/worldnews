@@ -246,3 +246,18 @@ test('precise locations: seats of government, capitals, small towns', () => {
   assert.equal(loc('Clashes erupt in Rumbek as South Sudan tensions rise')?.name, 'Rumbek');
   assert.notEqual(loc('Joni Mitchell becomes US citizen')?.name, 'Mitchell');
 });
+
+test('reports about the same official alert are one event', () => {
+  const t0 = 1_000_000;
+  const guam = { id: 'c-GU', name: 'Guam', zh: '关岛', cc: 'GU', lat: 13.4, lng: 144.8, kind: 'country' };
+  const storm = { id: 'gdacs-TC-1', type: 'storm', title: 'Red notification for tropical cyclone CHAMPI-26.', lat: 11.3, lng: 154, time: t0 - 3600, until: t0 + 86400, alert: 'red', source: 'gdacs', url: 'https://x' };
+  const stories = [
+    report('g1', 'rnz-pacific', 'en', 'Tropical Storm Champi: Another typhoon threatens Marianas', guam, t0, { cat: 'disaster', sub: 'storm', sev: 0.5, lc: 2, lw: 'c' }),
+    report('g2', 'abc-au', 'en', "Guam declares 'Condition of Readiness 3' as tropical depression approaches", guam, t0 + 3600, { cat: 'disaster', sub: 'storm', sev: 0.5, lc: 2, lw: 'c' }),
+  ];
+  const r = buildEvents({ stories, state: null, now: t0 + 2 * 3600, geo, src: (id) => SRC.get(id), placeById: (id) => (id === guam.id ? guam : null), quakes: [], hazards: [storm] });
+  assert.equal(r.events.length, 1);
+  assert.equal(stories[0].ev, stories[1].ev);
+  assert.equal(r.events[0].hz, 'gdacs-TC-1');
+  assert.equal(r.events[0].n, 2);
+});

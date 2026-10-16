@@ -205,6 +205,77 @@ function meters(e) {
   ${e.gap ? `<div class="gap-note">${icon('flag', 14)}<span><b>${esc(t().gap)}</b>${esc(t().gapWhy)}</span></div>` : ''}`;
 }
 
+// ---------------------------------------------------------------- timeline
+function dayLabel(sec) {
+  const d = new Date(sec * 1000);
+  const today = new Date();
+  const y = new Date(today.getTime() - 86400000);
+  const same = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  if (same(d, today)) return t().today;
+  if (same(d, y)) return t().yesterday;
+  return d.toLocaleDateString(getLang() === 'zh' ? 'zh-CN' : 'en-GB', { month: 'short', day: 'numeric', weekday: 'short' });
+}
+const clock = (sec) => new Date(sec * 1000).toLocaleTimeString(getLang() === 'zh' ? 'zh-CN' : 'en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+function nodeLabel(n) {
+  const L = t().tl;
+  if (n.k === 'toll') return L.toll(n.d);
+  if (n.k === 'spread') return L.spread(n.n);
+  if (n.k === 'alert') return L.alert(t().alertLevel[n.a] || n.a);
+  return L[n.k] || '';
+}
+
+/** How the event developed: first report, rising tolls, spreading coverage, new developments. */
+export function timelineNodes(e) {
+  const nodes = [...(e.tl || [])];
+  if (nodes.length < 2) return [];
+  // the newest report closes the timeline when it came well after the last node
+  const newest = e.reports.reduce((a, b) => (b.time > a.time ? b : a), e.reports[0]);
+  const last = nodes[nodes.length - 1];
+  if (newest && newest.time - last.t > 1800 && !nodes.some((n) => n.id === newest.id)) {
+    nodes.push({ t: newest.time, k: 'latest', id: newest.id, s: newest.source, h: newest.title, l: newest.lang, u: newest.url });
+  }
+  return nodes;
+}
+
+function timeline(e, store) {
+  const nodes = timelineNodes(e);
+  if (!nodes.length) return '';
+  let day = '';
+  const row = (n) => {
+    const d = dayLabel(n.t);
+    const head = d !== day ? `<div class="tl-day">${esc(d)}</div>` : '';
+    day = d;
+    let text = n.h;
+    let lang = n.l;
+    if (n.k === 'alert') {
+      const h = (store.raw.hazards || []).find((x) => x.id === n.id);
+      if (h) text = hazardText(h, 'title');
+      lang = getLang() === 'zh' && h?.zh ? 'zh' : 'en';
+    } else {
+      const story = store.storyById.get(n.id) || { id: n.id, title: n.h, lang: n.l };
+      text = storyTitle(story);
+      if (text !== n.h) lang = 'zh';
+    }
+    const src = n.k === 'alert' ? String(n.s || '').toUpperCase() : sourceName(store, n.s);
+    return `${head}<div class="tl-node k-${n.k}" data-node="${esc(n.id + n.k)}"><span class="tl-dot"></span><div class="tl-body">
+      <div class="tl-meta"><b>${esc(clock(n.t))}</b><span class="tl-k">${esc(nodeLabel(n))}</span><span>${esc(src)}</span></div>
+      <a class="tl-h" href="${safeUrl(n.u)}" target="_blank" rel="noopener noreferrer" lang="${lang === 'zh' ? 'zh-CN' : 'en'}">${esc(text)}</a></div></div>`;
+  };
+  // long timelines: the start and the latest developments, the middle folded
+  let body;
+  if (nodes.length > 7) {
+    const head = nodes.slice(0, 2).map(row).join('');
+    const mid = nodes.slice(2, -4);
+    const midHtml = mid.map(row).join('');
+    const tail = nodes.slice(-4).map(row).join('');
+    body = `${head}<details class="tl-more"><summary>${icon('chevron', 13)}${esc(t().tl.more(mid.length))}</summary>${midHtml}</details>${tail}`;
+  } else body = nodes.map(row).join('');
+  return `<div class="section-h">${icon('history', 13)} ${esc(t().timelineH)}</div>
+    <div class="tl">${body}</div>
+    <p class="hint tl-note">${esc(t().tl.note)}</p>`;
+}
+
 function hazardLink(e, store) {
   if (!e.hz) return '';
   const q = (store.raw.quakes || []).find((x) => x.id === e.hz);
@@ -243,6 +314,7 @@ export function eventDetail(e, store) {
     </div>
     ${meters(e)}
     ${credibility(e)}
+    ${timeline(e, store)}
     <div class="section-h">${icon('news', 13)} ${esc(t().allReports)} · ${reports.length}</div>
     ${shown.map((r) => storyHtml(r, store)).join('')}
     ${folded.length ? `<details class="state-more"><summary>${icon('chevron', 14)}${esc(t().stateMore(folded.length))}</summary>${folded.map((r) => storyHtml(r, store)).join('')}</details>` : ''}

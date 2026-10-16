@@ -88,6 +88,17 @@ export function translateStories(stories) {
   pump();
 }
 
+/** Put these first in the queue (e.g. the reports and timeline of the event being read). */
+export function translateFirst(stories) {
+  if (getLang() !== 'zh') return;
+  const en = stories.filter((s) => s.lang === 'en' && s.title);
+  const first = [...en.filter((s) => !cache.get(s.id)?.[0]).map((s) => [s, 0]), ...en.filter((s) => s.summary && !cache.get(s.id)?.[1]).map((s) => [s, 1])];
+  if (!first.length) return;
+  const keys = new Set(first.map(([s, f]) => `${s.id}|${f}`));
+  state.queue = [...first, ...state.queue.filter(([s, f]) => !keys.has(`${s.id}|${f}`))];
+  pump();
+}
+
 /** Translate one report right away (e.g. for a notification); resolves when done or after `ms`. */
 export function translateNow(s, ms = 1500) {
   if (!state.translator || !wanted(s) || cache.get(s.id)?.[0]) return Promise.resolve();
