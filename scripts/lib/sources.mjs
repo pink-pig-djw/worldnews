@@ -21,6 +21,25 @@ const NATIONAL = { ...LOCAL, national: true };
 
 export const DEFAULT_KEEP = 60;
 
+// Independence: outlets of one organisation (BBC and BBC Chinese, France 24 and RFI, Euronews and
+// Africanews) or one state's media count as one source when counting who reports an event.
+export const orgOf = (src) => src?.org || src?.id;
+
+// Where an outlet is based, for "how widely is this covered" (attention spread).
+const REGION = {
+  GB: 'eu', DE: 'eu', FR: 'eu', IT: 'eu', RS: 'eu', UA: 'eu', RU: 'eu',
+  US: 'na', CA: 'na',
+  MX: 'la', AR: 'la', BR: 'la', CR: 'la', CO: 'la',
+  QA: 'me',
+  CN: 'ea', HK: 'ea', TW: 'ea', JP: 'ea', KR: 'ea',
+  SG: 'sea', TH: 'sea', PH: 'sea', MM: 'sea',
+  IN: 'sa', PK: 'sa',
+  CG: 'af', NG: 'af', ZA: 'af', KE: 'af', SD: 'af',
+  AU: 'oc', NZ: 'oc',
+  XO: 'int',
+};
+export const regionOf = (src) => REGION[src?.country] || 'int';
+
 export const NEWS_SOURCES = [
   // ---- English ----
   { id: 'bbc', name: 'BBC News', zh: 'BBC', lang: 'en', kind: 'broadcaster', country: 'GB', url: 'https://feeds.bbci.co.uk/news/world/rss.xml' },
@@ -29,22 +48,22 @@ export const NEWS_SOURCES = [
   { id: 'nyt', name: 'The New York Times', zh: '纽约时报', lang: 'en', kind: 'newspaper', country: 'US', url: 'https://rss.nytimes.com/services/xml/rss/nyt/World.xml' },
   { id: 'npr', name: 'NPR', zh: 'NPR', lang: 'en', kind: 'broadcaster', country: 'US', url: 'https://feeds.npr.org/1004/rss.xml' },
   { id: 'dw', name: 'DW', zh: '德国之声', lang: 'en', kind: 'broadcaster', country: 'DE', url: 'https://rss.dw.com/xml/rss-en-world' },
-  { id: 'france24', name: 'France 24', zh: '法国24', lang: 'en', kind: 'broadcaster', country: 'FR', url: 'https://www.france24.com/en/rss' },
+  { id: 'france24', name: 'France 24', zh: '法国24', lang: 'en', kind: 'broadcaster', country: 'FR', org: 'fmm', url: 'https://www.france24.com/en/rss' },
   { id: 'sky', name: 'Sky News', zh: '天空新闻', lang: 'en', kind: 'broadcaster', country: 'GB', url: 'https://feeds.skynews.com/feeds/rss/world.xml' },
   { id: 'euronews', name: 'Euronews', zh: '欧洲新闻台', lang: 'en', kind: 'broadcaster', country: 'FR', url: 'https://www.euronews.com/rss?level=theme&name=news' },
   { id: 'scmp', name: 'South China Morning Post', zh: '南华早报', lang: 'en', kind: 'newspaper', country: 'HK', url: 'https://www.scmp.com/rss/91/feed' },
   { id: 'toi', name: 'Times of India', zh: '印度时报', lang: 'en', kind: 'newspaper', country: 'IN', url: 'https://timesofindia.indiatimes.com/rssfeeds/296589292.cms' },
-  { id: 'africanews', name: 'Africanews', zh: '非洲新闻台', lang: 'en', kind: 'broadcaster', country: 'CG', url: 'https://www.africanews.com/feed/rss' },
+  { id: 'africanews', name: 'Africanews', zh: '非洲新闻台', lang: 'en', kind: 'broadcaster', country: 'CG', org: 'euronews', url: 'https://www.africanews.com/feed/rss' },
   { id: 'un', name: 'UN News', zh: '联合国新闻', lang: 'en', kind: 'un', country: 'XO', url: 'https://news.un.org/feed/subscribe/en/news/all/rss.xml' },
-  { id: 'cgtn', name: 'CGTN', zh: '中国国际电视台', lang: 'en', kind: 'state', country: 'CN', url: 'https://www.cgtn.com/subscribe/rss/section/world.xml', ...CN_STATE },
+  { id: 'cgtn', name: 'CGTN', zh: '中国国际电视台', lang: 'en', kind: 'state', country: 'CN', org: 'cn-state', url: 'https://www.cgtn.com/subscribe/rss/section/world.xml', ...CN_STATE },
   { id: 'tass', name: 'TASS', zh: '塔斯社', lang: 'en', kind: 'state', country: 'RU', url: 'https://tass.com/rss/v2.xml', ...STATE, homeCc: ['RU'] },
   // ---- 中文 ----
-  { id: 'bbc-zh', name: 'BBC 中文', zh: 'BBC 中文', lang: 'zh', kind: 'broadcaster', country: 'GB', url: 'https://feeds.bbci.co.uk/zhongwen/simp/rss.xml' },
-  { id: 'dw-zh', name: 'DW 中文', zh: '德国之声中文网', lang: 'zh', kind: 'broadcaster', country: 'DE', url: 'https://rss.dw.com/xml/rss-chi-all' },
-  { id: 'rfi-zh', name: 'RFI 华语', zh: '法广华语', lang: 'zh', kind: 'broadcaster', country: 'FR', url: 'https://www.rfi.fr/cn/rss' },
-  { id: 'un-zh', name: '联合国新闻', zh: '联合国新闻', lang: 'zh', kind: 'un', country: 'XO', url: 'https://news.un.org/feed/subscribe/zh/news/all/rss.xml' },
-  { id: 'chinanews', name: '中国新闻网', zh: '中国新闻网', lang: 'zh', kind: 'state', country: 'CN', url: 'https://www.chinanews.com.cn/rss/world.xml', tz: '+08:00', ...CN_STATE },
-  { id: 'nyt-zh', name: '纽约时报中文网', zh: '纽约时报中文网', lang: 'zh', kind: 'newspaper', country: 'US', url: 'https://cn.nytimes.com/rss/', limit: 20 },
+  { id: 'bbc-zh', name: 'BBC 中文', zh: 'BBC 中文', lang: 'zh', kind: 'broadcaster', country: 'GB', org: 'bbc', url: 'https://feeds.bbci.co.uk/zhongwen/simp/rss.xml' },
+  { id: 'dw-zh', name: 'DW 中文', zh: '德国之声中文网', lang: 'zh', kind: 'broadcaster', country: 'DE', org: 'dw', url: 'https://rss.dw.com/xml/rss-chi-all' },
+  { id: 'rfi-zh', name: 'RFI 华语', zh: '法广华语', lang: 'zh', kind: 'broadcaster', country: 'FR', org: 'fmm', url: 'https://www.rfi.fr/cn/rss' },
+  { id: 'un-zh', name: '联合国新闻', zh: '联合国新闻', lang: 'zh', kind: 'un', country: 'XO', org: 'un', url: 'https://news.un.org/feed/subscribe/zh/news/all/rss.xml' },
+  { id: 'chinanews', name: '中国新闻网', zh: '中国新闻网', lang: 'zh', kind: 'state', country: 'CN', org: 'cn-state', url: 'https://www.chinanews.com.cn/rss/world.xml', tz: '+08:00', ...CN_STATE },
+  { id: 'nyt-zh', name: '纽约时报中文网', zh: '纽约时报中文网', lang: 'zh', kind: 'newspaper', country: 'US', org: 'nyt', url: 'https://cn.nytimes.com/rss/', limit: 20 },
   { id: 'ft-zh', name: 'FT中文网', zh: 'FT中文网', lang: 'zh', kind: 'newspaper', country: 'GB', url: 'https://www.ftchinese.com/rss/news', limit: 20 },
 
   // ---- Local media, by region (feeds checked from GitHub's runners) ----

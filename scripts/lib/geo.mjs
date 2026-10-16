@@ -50,7 +50,7 @@ export class Geoparser {
 
   homeResult(cc) {
     const p = this.places.find((x) => x.id === `c-${cc}`);
-    return p ? { loc: { id: p.id, name: p.en, zh: p.zh, cc: p.cc, lat: p.lat, lng: p.lng, kind: p.k }, country: cc, related: [], mentions: [] } : null;
+    return p ? { loc: { id: p.id, name: p.en, zh: p.zh, cc: p.cc, lat: p.lat, lng: p.lng, kind: p.k }, country: cc, related: [], mentions: [], conf: 1, why: 'h' } : null;
   }
 
   /** A small town's name is used as a place: after "in/near/…", or followed by its country or state. */
@@ -176,6 +176,7 @@ export class Geoparser {
 
     const placeScore = new Map();
     const titleCountries = new Set();
+    const inTitle = new Set(); // places named in the title (vs. only in the summary)
     for (const m of mentions) {
       let idx = m.cands[0];
       if (m.cands.length > 1) {
@@ -185,6 +186,7 @@ export class Geoparser {
       const p = this.places[idx];
       const s = m.w * p.w * (KIND_FACTOR[p.k] || 1);
       placeScore.set(idx, (placeScore.get(idx) || 0) + s);
+      if (m.inTitle) inTitle.add(idx);
       if (m.inTitle && REAL(p.cc) && p.k !== 'org') titleCountries.add(p.cc);
     }
 
@@ -216,6 +218,16 @@ export class Geoparser {
     }
     if (loc && loc.cc !== bestCc && REAL(loc.cc) && bestCc && locScore + 1 < bestScore * 0.6) loc = null;
     if (loc && (loc.cc === 'XS' || loc.cc === 'XR') && bestCc && locScore < bestScore * 0.9) loc = null;
+    // How sure we are about the place: 3 = named in the title, 2 = only in the summary, only the
+    // country, or inferred ("the Kremlin", "in the capital"), 1 = guessed (outlet's country,
+    // demonyms, institutions, vague regions). `why` keeps the reason for the interface.
+    const idxOf = (p) => this.places.indexOf(p);
+    let conf = 0;
+    let why = '';
+    if (loc) {
+      conf = inTitle.has(idxOf(loc)) ? 3 : 2;
+      why = conf === 3 ? 't' : 's';
+    }
     if (!loc && bestCc) {
       // fall back to the strongest country mention (prefer the real country entry over demonyms/actors)
       let best = null;
@@ -227,12 +239,23 @@ export class Geoparser {
         if (sc > bs) { bs = sc; best = p; }
       }
       loc = best;
+      const named = loc && loc.k === 'country';
       if (loc && loc.k !== 'country') {
         const country = this.places.find((p) => p.id === `c-${bestCc}`);
         if (country && loc.k !== 'city') loc = country;
       }
+      conf = named || loc?.k === 'city' ? 2 : 1;
+      why = loc?.k === 'city' ? (inTitle.has(idxOf(loc)) ? 't' : 's') : named ? 'c' : 'a';
+      if (loc?.k === 'city' && why === 't') conf = 3;
       // a country-level story that names where it happened in other words
-      if (loc?.k === 'country') loc = this.seatOrCapital(placeScore, mentions, bestCc, `${title} ${summary}`) || loc;
+      if (loc?.k === 'country') {
+        const seat = this.seatOrCapital(placeScore, mentions, bestCc, `${title} ${summary}`);
+        if (seat) {
+          loc = seat;
+          conf = 2;
+          why = 'g';
+        }
+      }
     }
     if (!loc) {
       // nothing country-level: use the strongest sea/region/organisation/macro-region
@@ -241,10 +264,20 @@ export class Geoparser {
         const p = this.places[idx];
         if (s > bs) { bs = s; loc = p; }
       }
+      conf = loc && SPECIFIC.has(loc.k) && inTitle.has(idxOf(loc)) ? 3 : loc && SPECIFIC.has(loc.k) ? 2 : 1;
+      why = conf === 3 ? 't' : conf === 2 ? 's' : 'a';
     }
     if (!loc) return null;
     // demonyms ("Ukrainian") are separate entries only so they can weigh less; locate them at the country
-    if (loc.id.startsWith('d-')) loc = this.places.find((p) => p.id === `c-${loc.cc}`) || loc;
+    if (loc.id.startsWith('d-')) {
+      loc = this.places.find((p) => p.id === `c-${loc.cc}`) || loc;
+      conf = 1;
+      why = 'a';
+    }
+    if ((loc.k === 'actor' || loc.k === 'org' || loc.k === 'macro') && why !== 'g') {
+      conf = Math.min(conf, 1);
+      why = 'a';
+    }
 
     const country = REAL(loc.cc) ? loc.cc : null;
     const related = [...countryScore.entries()]
@@ -257,6 +290,9 @@ export class Geoparser {
       country,
       related,
       mentions: [...new Set([...placeScore.keys()].map((i) => this.places[i].id))].slice(0, 12),
+      titlePlaces: [...inTitle].map((i) => this.places[i].id),
+      conf,
+      why,
     };
   }
 }

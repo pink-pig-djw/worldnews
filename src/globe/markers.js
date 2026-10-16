@@ -75,9 +75,11 @@ export function createMarkerLayer(view, root, handlers) {
         host.latest = Math.max(host.latest, p.latest);
         host.maxSev = Math.max(host.maxSev, p.maxSev);
         host.fresh += p.fresh || 0;
+        host.confirmed ||= p.confirmed;
+        host.approx &&= p.approx;
         for (const [k, v] of Object.entries(p.cats)) host.cats[k] = (host.cats[k] || 0) + v;
       } else {
-        clusters.push({ key: `p:${p.id}`, lat: p.lat, lng: p.lng, lead: p, places: [p], score: p.score, count: p.count, latest: p.latest, maxSev: p.maxSev, fresh: p.fresh || 0, cats: { ...p.cats } });
+        clusters.push({ key: `p:${p.id}`, lat: p.lat, lng: p.lng, lead: p, places: [p], score: p.score, count: p.count, latest: p.latest, maxSev: p.maxSev, fresh: p.fresh || 0, confirmed: p.confirmed, approx: p.approx, cats: { ...p.cats } });
       }
     }
     for (const c of clusters) c.topCat = Object.entries(c.cats).sort((a, b) => b[1] - a[1])[0][0];
@@ -101,15 +103,18 @@ export function createMarkerLayer(view, root, handlers) {
     return el;
   }
 
+  // Dot size says how severe an event is (not how much it is covered: that is the light pillar);
+  // a hollow dot is reported by a single outlet so far, a dashed ring means the place is approximate.
   function renderCluster(el, c) {
     const now = Date.now() / 1000;
     const color = CAT[c.topCat]?.color || '#fff';
-    const norm = Math.sqrt(c.score / state.maxScore);
-    // minor places become small dots so the real hotspots stand out
-    const minor = norm < 0.2 && c.count < 3;
-    const size = phone() ? (minor ? 7 : Math.round(10 + 13 * norm)) : minor ? 9 : Math.round(14 + 20 * norm);
+    const sev = Math.min(1, Math.max(0, (c.maxSev - 0.2) / 0.75));
+    const extra = Math.min(4, 2 * Math.log2(c.count || 1)); // a little bigger when several events share the spot
+    // routine news becomes small dots so the severe events stand out
+    const minor = c.maxSev < 0.42 && c.count < 3;
+    const size = phone() ? (minor ? 7 : Math.round(8 + 15 * sev + extra * 0.7)) : minor ? 9 : Math.round(11 + 23 * sev + extra);
     el.classList.toggle('is-minor', minor);
-    const lead = c.lead.stories[0];
+    const lead = c.lead.events[0];
     const iconName = SUB_ICON[lead?.sub] && lead.cat === c.topCat ? SUB_ICON[lead.sub] : CAT[c.topCat]?.icon;
     const fresh = now - c.latest < 3600;
     el.style.setProperty('--c', color);
@@ -117,12 +122,14 @@ export function createMarkerLayer(view, root, handlers) {
     el.classList.toggle('is-fresh', fresh);
     el.classList.toggle('is-severe', c.maxSev >= 0.7);
     el.classList.toggle('is-multi', c.places.length > 1);
+    el.classList.toggle('is-single', !c.confirmed);
+    el.classList.toggle('is-approx', c.approx);
     // reports that arrived in the last few minutes get a "new" tag and a brighter pulse
     const isNew = c.fresh > 0;
     el.classList.toggle('is-new', isNew);
     const name = esc(placeName(c.lead));
     const more = c.places.length > 1 ? ` +${c.places.length - 1}` : '';
-    el.setAttribute('aria-label', `${placeName(c.lead)}${more} · ${t().reports(c.count)}`);
+    el.setAttribute('aria-label', `${placeName(c.lead)}${more} · ${t().events(c.count)}`);
     const sig = `${size}|${c.count}|${iconName}|${color}|${name}${more}|${fresh}|${isNew}|${t().newBadge}`;
     if (el.__sig === sig) return;
     el.__sig = sig;

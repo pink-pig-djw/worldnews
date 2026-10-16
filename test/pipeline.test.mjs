@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { classify, extractDeaths } from '../scripts/lib/classify.mjs';
-import { clusterStories } from '../scripts/lib/cluster.mjs';
+import { classify, extractDeaths, reportDeaths } from '../scripts/lib/classify.mjs';
+import { concepts, numbers } from '../scripts/lib/concepts.mjs';
+import { assignEvents, buildEvents, hazardSeverity } from '../scripts/lib/events.mjs';
 import { Geoparser } from '../scripts/lib/geo.mjs';
+import { NEWS_SOURCES, orgOf, regionOf } from '../scripts/lib/sources.mjs';
 import { normalizeEonet, normalizeGdacs, normalizeUsgs, parseTle } from '../scripts/lib/hazards.mjs';
 import { parseFeed } from '../scripts/lib/rss.mjs';
 import { cleanText, normalizeUrl, parseDate } from '../scripts/lib/util.mjs';
@@ -79,17 +81,136 @@ test('hazard normalisation', () => {
   assert.equal(parseTle(readFileSync(new URL('./fixtures/tle-25544.txt', import.meta.url), 'utf8')).length, 2);
 });
 
-test('clustering groups the same event across outlets', () => {
-  const base = { lang: 'en', loc: { cc: 'PS' } };
-  const stories = [
-    { ...base, id: 'a', source: 'bbc', time: 1000, title: 'Israeli strikes kill 30 in Gaza, officials say' },
-    { ...base, id: 'b', source: 'aljazeera', time: 2000, title: 'Gaza: Israeli air strikes kill at least 30 Palestinians' },
-    { ...base, id: 'c', source: 'guardian', time: 3000, title: 'Aid trucks enter northern Gaza' },
+// ---------------------------------------------------------------- events
+const SRC = new Map(NEWS_SOURCES.map((x) => [x.id, { ...x, org: orgOf(x), region: regionOf(x) }]));
+const PLACES = {
+  aden: { id: 'p-YE-aden', name: 'Aden', zh: '亚丁', cc: 'YE', lat: 12.8, lng: 45.03, kind: 'city' },
+  yemen: { id: 'c-YE', name: 'Yemen', zh: '也门', cc: 'YE', lat: 15.6, lng: 48, kind: 'country' },
+  gaza: { id: 'gaza', name: 'Gaza', zh: '加沙', cc: 'PS', lat: 31.4, lng: 34.4, kind: 'region' },
+  pk: { id: 'c-PK', name: 'Pakistan', zh: '巴基斯坦', cc: 'PK', lat: 30, lng: 70, kind: 'country' },
+  peshawar: { id: 'p-PK-peshawar', name: 'Peshawar', zh: '白沙瓦', cc: 'PK', lat: 34, lng: 71.5, kind: 'city' },
+};
+const placeById = (id) => Object.values(PLACES).find((p) => p.id === id);
+const report = (id, source, lang, title, loc, time, extra = {}) => ({
+  id, source, lang, title, summary: '', url: `https://example.org/${id}`, time, seen: time, loc, rel: [], cat: 'conflict', sub: 'attack', sev: 0.6, lc: 3, lw: 't', ...extra,
+});
+const H = 3600;
+function sampleWindow(t0) {
+  return [
+    report('a1', 'aljazeera', 'en', 'At least 5 killed in Houthi attack on Yemen’s presidential palace in Aden', PLACES.aden, t0, { deaths: 5 }),
+    report('a2', 'guardian', 'en', 'Houthi missiles strike Yemen presidential palace, killing five', PLACES.aden, t0 + H, { deaths: 5, sub: 'missile' }),
+    report('a3', 'chinanews', 'zh', '也门官员：胡塞武装袭击亚丁总统府 致5死16伤', PLACES.aden, t0 + 2 * H, { deaths: 5 }),
+    report('a4', 'bbc', 'en', 'Houthi missile attack on Yemeni presidential palace kills five, minister says', PLACES.yemen, t0 + 3 * H, { deaths: 5, lc: 2, lw: 'c' }),
+    report('b1', 'cgtn', 'en', '17 students, one teacher killed in school roof collapse in Pakistan', PLACES.pk, t0, { cat: 'disaster', sub: 'accident', deaths: 18, lc: 2, lw: 'c' }),
+    report('b2', 'dawn', 'en', 'Teacher, 30 students killed in Peshawar school roof collapse', PLACES.peshawar, t0 + 2 * H, { cat: 'disaster', sub: 'accident', deaths: 31 }),
+    report('b3', 'pts', 'zh', '巴基斯坦学校屋顶突坍塌 已知28死、30多人伤', PLACES.pk, t0 + 3 * H, { cat: 'disaster', sub: 'accident', deaths: 28, lc: 2, lw: 'c' }),
+    report('c1', 'bbc', 'en', 'Aid trucks enter northern Gaza', PLACES.gaza, t0 + H, { cat: 'society', sub: 'humanitarian', sev: 0.4 }),
+    report('d1', 'tass', 'en', 'Trump says Ukraine needs to hold elections', null, t0 + H, { cat: 'politics', sub: 'election', sev: 0.3, lc: 0, lw: '' }),
+    report('d2', 'aljazeera', 'en', 'Ahead of US midterms, voters are frustrated with Trump, want change: Poll', null, t0 + 2 * H, { cat: 'politics', sub: 'election', sev: 0.3, lc: 0, lw: '' }),
   ];
-  clusterStories(stories);
-  assert.equal(stories[1].cluster, 'a');
-  assert.equal(stories[2].cluster, 'c');
-  assert.equal(stories[0].coverage, 2);
+}
+
+test('concepts and numbers line up across languages', () => {
+  assert.deepEqual([...numbers('也门官员：胡塞武装袭击亚丁总统府 致5死16伤', 'zh')].sort(), ['16', '5']);
+  assert.ok(numbers('Houthi attack on palace kills five', 'en').has('5'));
+  assert.ok(numbers('巴基斯坦校园屋顶坍塌 学生及教师共三十五人死亡', 'zh').has('35'));
+  assert.equal(numbers('五角大楼与三星在四川', 'zh').size, 0); // Pentagon, Samsung, Sichuan are not numbers
+  assert.equal(numbers('10月15日至2026年', 'zh').size, 0); // dates and years are left out
+  assert.ok(concepts('胡塞武装袭击亚丁总统府', 'zh').has('houthi'));
+  assert.ok(concepts('Houthi missiles strike presidential palace', 'en').has('palace'));
+  assert.ok(concepts('WHO urges vigilance after Kenya confirms Ebola case', 'en').has('who'));
+  assert.ok(!concepts('Who will win the vote?', 'en').has('who'));
+});
+
+test('events: one per real-world event, across outlets and languages', () => {
+  const stories = sampleWindow(1_000_000);
+  assignEvents(stories, { geo });
+  const ev = Object.fromEntries(stories.map((s) => [s.id, s.ev]));
+  assert.equal(ev.a2, ev.a1);
+  assert.equal(ev.a3, ev.a1, 'the Chinese report of the Aden attack joins the English ones');
+  assert.equal(ev.a4, ev.a1);
+  assert.equal(ev.b2, ev.b1);
+  assert.equal(ev.b3, ev.b1);
+  assert.notEqual(ev.b1, ev.a1);
+  assert.notEqual(ev.c1, ev.a1);
+  assert.notEqual(ev.d1, ev.d2, '"Trump" + "election" alone is not the same event');
+});
+
+test('events persist across runs and score severity apart from attention', () => {
+  const t0 = 1_000_000;
+  const now1 = t0 + 2.5 * H;
+  const first = sampleWindow(t0).filter((s) => s.time <= now1);
+  const ctx = { geo, src: (id) => SRC.get(id), placeById, quakes: [], hazards: [] };
+  const r1 = buildEvents({ stories: first, state: null, now: now1, ...ctx });
+  const idOf = new Map(first.map((s) => [s.id, s.ev]));
+  // next run: the same stories (keeping their events) plus the later ones
+  const now2 = t0 + 4 * H;
+  const second = sampleWindow(t0).map((s) => ({ ...s, ev: idOf.get(s.id) }));
+  const r2 = buildEvents({ stories: second, state: JSON.parse(JSON.stringify(r1.state)), now: now2, ...ctx });
+  for (const s of second) if (idOf.has(s.id)) assert.equal(s.ev, idOf.get(s.id), 'reports keep their event');
+  const aden = r2.events.find((e) => e.id === idOf.get('a1'));
+  assert.equal(aden.n, 4, 'each report counted once');
+  assert.equal(aden.o, 4);
+  assert.equal(aden.loc, 'p-YE-aden', 'the city most reports name, not the country');
+  assert.equal(aden.lc, 3);
+  assert.equal(aden.d, 5);
+  assert.ok(aden.sev >= 0.6 && aden.sev < 0.8);
+  const roof = r2.events.find((e) => e.id === idOf.get('b1'));
+  assert.equal(roof.loc, 'p-PK-peshawar');
+  assert.equal(roof.d, 31);
+  assert.ok(roof.tl?.some((n) => n.k === 'toll' && n.d === 31), 'the rising toll is on the timeline');
+  // severity does not grow with coverage; attention does
+  const gaza = r2.events.find((e) => e.id === second.find((s) => s.id === 'c1').ev);
+  assert.ok(aden.att > gaza.att);
+  assert.ok(gaza.v === 1 && aden.v === 4);
+  // a fresh state (lost cache) gives the same events their same ids
+  const again = sampleWindow(t0);
+  buildEvents({ stories: again, state: null, now: now2, ...ctx });
+  assert.equal(again.find((s) => s.id === 'a3').ev, idOf.get('a1'));
+});
+
+test('events leave the window into a 15-day archive, then expire', () => {
+  const t0 = 1_000_000;
+  const ctx = { geo, src: (id) => SRC.get(id), placeById, quakes: [], hazards: [] };
+  const r1 = buildEvents({ stories: sampleWindow(t0), state: null, now: t0 + 4 * H, ...ctx });
+  const r2 = buildEvents({ stories: [], state: r1.state, now: t0 + 60 * H, ...ctx });
+  assert.equal(r2.events.length, 0);
+  assert.ok(r2.archive.some((e) => e.v >= 3), 'multi-source events are archived');
+  assert.ok(!r2.archive.some((e) => e.v === 1 && e.n === 1 && e.sev < 0.6), 'minor single reports are not');
+  assert.ok(r2.archive.every((e) => e.ti?.en || e.ti?.zh), 'archived events keep a headline');
+  const r3 = buildEvents({ stories: [], state: r2.state, now: t0 + 16 * 24 * H, ...ctx });
+  assert.equal(r3.archive.length, 0);
+});
+
+test('official alerts set severity and link to news events', () => {
+  assert.ok(hazardSeverity({ mag: 7.2, alert: 'yellow' }) >= 0.82);
+  assert.ok(hazardSeverity({ alert: 'red' }) > hazardSeverity({ alert: 'orange' }));
+  const t0 = 1_000_000;
+  const quake = { id: 'us7', mag: 6.9, place: '76 km NE of Ozernovskiy, Russia', time: t0, lat: 51.98, lng: 157.27, alert: 'green', url: 'https://x' };
+  const kam = { id: 'a-RU-kamchatka', name: 'Kamchatka', zh: '堪察加', cc: 'RU', lat: 56, lng: 159, kind: 'admin1' };
+  const stories = [report('q1', 'chinanews', 'zh', '俄罗斯堪察加半岛发生6.9级地震', kam, t0 + 600, { cat: 'disaster', sub: 'quake', sev: 0.55 })];
+  const r = buildEvents({ stories, state: null, now: t0 + H, geo, src: (id) => SRC.get(id), placeById: (id) => (id === kam.id ? kam : null), quakes: [quake], hazards: [] });
+  assert.equal(r.events[0].hz, 'us7');
+  assert.ok(r.events[0].sev >= 0.72);
+  assert.equal(quake.ev, r.events[0].id);
+});
+
+test('death tolls: titles first, no years, no background figures', () => {
+  assert.equal(reportDeaths('From Allies to Enemies: Ethiopia and Eritrea Edge Toward War', 'The conflict left hundreds of thousands of people dead.', false), 0);
+  assert.equal(reportDeaths('Family welcomes review into death of woman left in hospital corridor', 'left unattended in October 2025 before she died', false), 0);
+  assert.equal(reportDeaths('Floods kill dozens in Nigeria', 'At least 45 people were killed.', false), 45);
+  assert.equal(classify('Four killed fighting wildfires in Indonesian national park').cat, 'disaster');
+  assert.notEqual(classify('Man killed by tiger at zoo had bouts of psychosis, inquest hears').cat, 'conflict');
+  assert.notEqual(classify('美核动力航母停靠横须贺基地', '', 'zh').sev, 0.65);
+});
+
+test('location confidence', () => {
+  const g = (title, summary = '', o = {}) => geo.parse(title, summary, 'en', o);
+  assert.equal(g('Teacher, 30 students killed in Peshawar school roof collapse').conf, 3);
+  assert.equal(g('Pakistan school roof collapse kills 28').conf, 2);
+  assert.equal(g('School roof collapse kills 28', 'It happened in Peshawar, Pakistan.').why, 's');
+  assert.equal(g('Government announces new budget', '', { homeCc: 'JP', homeFallback: true }).conf, 1);
+  assert.equal(g('Kremlin says sanctions will not change course').why, 'g');
 });
 
 test('Chinese wording for alerts and quake locations', () => {

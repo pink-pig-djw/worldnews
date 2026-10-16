@@ -1,17 +1,17 @@
 import './styles/main.css';
 import { CAT, CATEGORIES, DATA_URL, HAZARD_COLOR, HIDDEN_POLL_MS, isMobile, LIVE_QUAKES_URL, POLL_MS, QUAKE_COLOR, STATUS_URL, SUB_ICON } from './config.js';
 import { getLang, setLang, t, timeAgo } from './i18n.js';
-import { allCountries, countryInfo, countryName, flag, isRealCc, placeName, sourceFactor, store } from './data/store.js';
+import { allCountries, countryInfo, countryName, flag, isRealCc, placeName, store } from './data/store.js';
 import { createGlobeView, hexToRgba } from './globe/globe.js';
 import { createMarkerLayer } from './globe/markers.js';
 import { createSatellites } from './globe/satellites.js';
 import { $, $$, esc, toast } from './ui/dom.js';
 import { normalizeUsgs } from '../scripts/lib/usgs.mjs';
-import { quakePlace, storyTitle } from './data/localize.js';
+import { eventStory, eventTitle, quakePlace } from './data/localize.js';
 import { disableTranslation, enableTranslation, initTranslation, translateNow, translateStories } from './data/translate.js';
 import { icon } from './ui/icons.js';
 import { feedTab, hazardsTab, hotTab, settingsTab } from './ui/lists.js';
-import { clockHtml, clusterDetail, countryDetail, hazardDetail, placeDetail, quakeDetail, satDetail, satKv, storyHtml } from './ui/panels.js';
+import { clockHtml, clusterDetail, countryDetail, eventDetail, hazardDetail, placeDetail, quakeDetail, satDetail, satKv } from './ui/panels.js';
 
 // ---------------------------------------------------------------- settings
 const DEFAULT_LAYERS = { markers: true, arcs: true, pillars: true, rings: true, quakes: true, hazards: true, sats: true, labels: true, borders: true, clouds: true, terminator: true, heat: false };
@@ -44,7 +44,7 @@ setLang(settings.lang);
 
 // ---------------------------------------------------------------- shell
 const app = $('#app');
-const ui = { tab: isMobile() ? 'map' : 'feed', sort: 'important', current: null, tour: null };
+const ui = { tab: isMobile() ? 'map' : 'feed', sort: 'important', hotSort: 'imp', current: null, tour: null };
 // live-update bookkeeping (see "live updates" below)
 const live = { lastCheck: 0, lastFull: 0, pending: null, staleVersion: null, quakeTry: 0, quakesAt: 0, quakes: [], quakesPrimed: false, flashes: [], flashTimer: 0, unseen: 0 };
 
@@ -94,13 +94,18 @@ function setTab(tab, fromHistory = false) {
 }
 
 function renderChips() {
-  const v = store.view;
   const all = store.filters.cats.size === CATEGORIES.length;
   const counts = {};
   const minTime = Date.now() / 1000 - store.filters.windowHours * 3600;
-  for (const s of store.raw?.stories || []) if (s.time >= minTime) counts[s.cat] = (counts[s.cat] || 0) + 1;
+  // events with a report in the time window, per category
+  let total = 0;
+  for (const e of store.events) {
+    if (!e.reports.some((s) => s.time >= minTime)) continue;
+    counts[e.cat] = (counts[e.cat] || 0) + 1;
+    total++;
+  }
   $('#cat-chips').innerHTML =
-    `<button class="chip ${all ? 'on' : ''}" data-cat="all" style="--c:#5cc8ff">${esc(t().cats.all)} <b>${v ? (store.raw?.stories || []).filter((s) => s.time >= minTime).length : ''}</b></button>` +
+    `<button class="chip ${all ? 'on' : ''}" data-cat="all" style="--c:#5cc8ff">${esc(t().cats.all)} <b>${store.raw ? total : ''}</b></button>` +
     CATEGORIES.filter((c) => c.id !== 'other' || counts.other)
       .map((c) => {
         const on = store.filters.cats.has(c.id);
@@ -157,7 +162,9 @@ const view = createGlobeView(container, { quality: settings.quality });
 const markers = createMarkerLayer(view, container, {
   onCluster: (c) => {
     hideTooltip();
-    c.places.length > 1 && view.altitude > 0.35 ? selectCluster(c) : selectPlace(c.places[0]);
+    if (c.places.length > 1 && view.altitude > 0.35) selectCluster(c);
+    else if (c.places[0].events.length === 1) selectEvent(c.places[0].events[0]);
+    else selectPlace(c.places[0]);
   },
   onQuake: (q) => selectQuake(q),
   onHazard: (h) => selectHazard(h),
@@ -247,15 +254,21 @@ function renderLayers() {
   const focus = cur?.type === 'place' ? cur.id : cur?.type === 'country' ? cur.cc : null;
   view.setArcs(L.arcs ? v.arcs.slice(0, isMobile() ? 14 : 32) : [], focus);
 
-  // light pillars for the hottest places (fewer, slimmer ones on phones)
+  // light pillars: media attention (independent outlets), separate from the dots' severity
   const phone = isMobile();
-  const top = v.places.slice(0, phone ? 16 : 32);
-  const max = top[0]?.score || 1;
+  const covered = [];
+  const seenPlace = new Set();
+  for (const e of [...v.events].filter((x) => x.v >= 2 && x.place).sort((a, b) => b.att - a.att || b.w - a.w)) {
+    if (seenPlace.has(e.place.id)) continue;
+    seenPlace.add(e.place.id);
+    covered.push(e);
+    if (covered.length >= (phone ? 16 : 32)) break;
+  }
   view.setPillars(
     L.pillars
-      ? top.map((p) => {
-          const n = Math.sqrt(p.score / max);
-          return { lat: p.lat, lng: p.lng, color: CAT[p.topCat]?.color || '#fff', height: (0.02 + 0.2 * n) * (phone ? 0.6 : 1), width: (0.7 + 1.5 * n) * (phone ? 0.55 : 1) };
+      ? covered.map((e) => {
+          const n = Math.max(0, (e.att - 0.3) / 0.7);
+          return { lat: e.place.lat, lng: e.place.lng, color: CAT[e.cat]?.color || '#fff', height: (0.015 + 0.2 * n) * (phone ? 0.6 : 1), width: (0.7 + 1.4 * n) * (phone ? 0.55 : 1) };
         })
       : [],
   );
@@ -290,10 +303,10 @@ function renderRings() {
   const rings = [];
   const zs = zoomScale() * (isMobile() ? 0.7 : 1);
   if (settings.layers.rings) {
-    const max = v.places[0]?.score || 1;
+    // ripples where something severe is happening or reports just came in; stronger = more severe
     for (const p of v.places.slice(0, 40)) {
       if (!(p.breaking || p.maxSev >= 0.72)) continue;
-      const n = Math.sqrt(p.score / max);
+      const n = Math.min(1, Math.max(0, (p.maxSev - 0.4) / 0.5));
       rings.push({ lat: p.lat, lng: p.lng, color: CAT[p.topCat]?.color || '#fff', maxR: (1.6 + 3.2 * n) * zs, speed: (1.2 + 1.4 * n) * zs, period: 2400 - 900 * n, alpha: 0.7 });
       if (rings.length >= 18) break;
     }
@@ -343,7 +356,7 @@ function renderSide() {
     return;
   }
   const html =
-    tab === 'feed' ? feedTab(store, ui) : tab === 'hot' ? hotTab(store) : tab === 'hazards' ? hazardsTab(store, satellites.positions()) : settingsTab(store, settings);
+    tab === 'feed' ? feedTab(store, ui) : tab === 'hot' ? hotTab(store, ui) : tab === 'hazards' ? hazardsTab(store, satellites.positions()) : settingsTab(store, settings);
   if (ui.lastSideTab === tab) keepReadingPosition(body, () => (body.innerHTML = html));
   else {
     body.innerHTML = html;
@@ -359,8 +372,8 @@ function renderSide() {
 function keepReadingPosition(box, render) {
   const keep = box.scrollTop;
   const top = box.getBoundingClientRect().top;
-  const items = () => box.querySelectorAll('.row, .story, .place-row');
-  const keyOf = (el) => el.dataset.story || el.dataset.id || el.dataset.cc;
+  const items = () => box.querySelectorAll('.row, .story, .place-row, .tl-node');
+  const keyOf = (el) => el.dataset.story || el.dataset.id || el.dataset.cc || el.dataset.node;
   const anchor = keep > 0 ? [...items()].find((el) => el.getBoundingClientRect().bottom > top + 1 && keyOf(el)) : null;
   const key = anchor && keyOf(anchor);
   const offset = anchor ? anchor.getBoundingClientRect().top - top : 0;
@@ -394,7 +407,11 @@ $('#side-body').addEventListener('click', (e) => {
     renderSide();
   } else if (action === 'lang') store.setFilter({ lang: a.dataset.v });
   else if (action === 'story') openStory(a.dataset.id);
-  else if (action === 'country') selectCountry(a.dataset.cc);
+  else if (action === 'event') selectEvent(store.event(a.dataset.id));
+  else if (action === 'hot-sort') {
+    ui.hotSort = a.dataset.v;
+    renderSide();
+  } else if (action === 'country') selectCountry(a.dataset.cc);
   else if (action === 'place') selectPlace(store.view.placeById.get(a.dataset.id));
   else if (action === 'quake') selectQuake((store.raw.quakes || []).find((q) => q.id === a.dataset.id));
   else if (action === 'hazard') selectHazard((store.raw.hazards || []).find((h) => h.id === a.dataset.id));
@@ -451,7 +468,12 @@ function setupTranslation() {
   queueTranslations();
 }
 function queueTranslations() {
-  if (store.raw) translateStories([...store.view.stories].sort((a, b) => b.w - a.w));
+  if (!store.raw) return;
+  // the headline of every event first (most important first), then the other reports
+  const events = store.view.events;
+  const leads = events.map((e) => e.lead);
+  const leadSet = new Set(leads);
+  translateStories([...leads, ...events.flatMap((e) => e.vr.filter((s) => !leadSet.has(s)))]);
 }
 let translationPaint = 0;
 function onTranslation(kind) {
@@ -540,8 +562,9 @@ function fly(lat, lng, altitude, ms = 1500) {
   view.flyTo({ lat, lng, altitude: alt }, ms);
 }
 
-function selectPlace(place, { storyId = null, fromTour = false } = {}) {
+function selectPlace(place, { fromTour = false } = {}) {
   if (!place) return;
+  if (place.events?.length === 1) return selectEvent(place.events[0], { fromTour });
   if (!fromTour) stopTour();
   ui.current = { type: 'place', id: place.id, lat: place.lat, lng: place.lng };
   markers.select({ place: place.id });
@@ -551,6 +574,21 @@ function selectPlace(place, { storyId = null, fromTour = false } = {}) {
   view.setArcs(settings.layers.arcs ? store.view.arcs.slice(0, isMobile() ? 14 : 32) : [], place.id);
   renderRings();
   setHash(`p=${encodeURIComponent(place.id)}`);
+}
+
+/** An event: its place on the map, the event panel (reliability, severity, attention, reports). */
+function selectEvent(e, { storyId = null, fromTour = false } = {}) {
+  if (!e) return;
+  if (!fromTour) stopTour();
+  const p = e.place;
+  ui.current = { type: 'event', id: e.id, lat: p?.lat, lng: p?.lng };
+  markers.select(p ? { place: p.id } : {});
+  view.setSelectedCountry(p?.kind === 'country' ? p.cc : null);
+  if (p?.lat != null) fly(p.lat, p.lng, Math.min(view.altitude, altitudeFor(p.kind, p.cc)));
+  openDetail(eventDetail(e, store));
+  view.setArcs(settings.layers.arcs ? store.view.arcs.slice(0, isMobile() ? 14 : 32) : [], p?.id ?? null);
+  renderRings();
+  setHash(`e=${encodeURIComponent(e.id)}`);
   if (storyId) highlightStory(storyId);
 }
 
@@ -616,14 +654,10 @@ function selectSat(id) {
   setHash(`s=${id}`);
 }
 
+/** A report opens the event it belongs to, scrolled to that report. */
 function openStory(id) {
-  const s = (store.raw?.stories || []).find((x) => x.id === id);
-  if (!s) return;
-  const place = s.loc && store.view.placeById.get(s.loc.id);
-  if (place) return selectPlace(place, { storyId: s.id });
-  ui.current = { type: 'story', id };
-  markers.select({});
-  openDetail(`<div class="d-head"><div class="d-top"><span class="badge">${esc(t().noLocation)}</span><button class="d-close" data-action="close">${icon('x', 16)}</button></div></div>${storyHtml(s, store)}`);
+  const e = store.eventOfStory(id);
+  if (e) selectEvent(e, { storyId: id });
 }
 
 function highlightStory(id) {
@@ -640,7 +674,11 @@ function reopenCurrent() {
   const c = ui.current;
   if (!c) return;
   const v = store.view;
-  if (c.type === 'place') {
+  if (c.type === 'event') {
+    const e = store.event(c.id);
+    if (e && e.id !== c.id) c.id = e.id; // merged into another event meanwhile
+    e ? openDetail(eventDetail(e, store), true) : closeDetail();
+  } else if (c.type === 'place') {
     const p = v.placeById.get(c.id);
     p ? openDetail(placeDetail(p, store), true) : closeDetail();
   } else if (c.type === 'country') openDetail(countryDetail(c.cc, store), true);
@@ -670,7 +708,20 @@ detail.addEventListener('click', async (e) => {
   const { action } = a.dataset;
   if (action === 'close') closeDetail();
   else if (action === 'country') selectCountry(a.dataset.cc);
-  else if (action === 'place') selectPlace(store.view.placeById.get(a.dataset.id));
+  else if (action === 'event') selectEvent(store.event(a.dataset.id));
+  else if (action === 'quake') selectQuake((store.raw.quakes || []).find((q) => q.id === a.dataset.id));
+  else if (action === 'hazard') selectHazard((store.raw.hazards || []).find((h) => h.id === a.dataset.id));
+  else if (action === 'place') {
+    const p = store.view.placeById.get(a.dataset.id);
+    // from an event panel, "all events here" lists them even when there is only one
+    if (p) {
+      stopTour();
+      ui.current = { type: 'place', id: p.id, lat: p.lat, lng: p.lng };
+      markers.select({ place: p.id });
+      openDetail(placeDetail(p, store));
+      setHash(`p=${encodeURIComponent(p.id)}`);
+    }
+  }
   else if (action === 'zoom' && ui.current?.lat != null) fly(ui.current.lat, ui.current.lng, Math.max(0.15, view.altitude * 0.5));
   else if (action === 'others') {
     const list = a.parentElement.querySelector('.others-list');
@@ -837,10 +888,11 @@ const tooltip = $('#tooltip');
 function showMarkerTooltip(item, el) {
   if (isMobile() || !item || !item.places) return hideTooltip();
   const lead = item.lead;
-  const s = lead.stories[0];
-  const c = CAT[item.topCat] || CAT.other;
-  tooltip.innerHTML = `<div class="tt-head"><span class="badge" style="--c:${c.color}">${icon(SUB_ICON[s?.sub] || c.icon, 11)}${esc(t().cats[item.topCat])}</span><b>${esc(placeName(lead))}${item.places.length > 1 ? ` +${item.places.length - 1}` : ''}</b></div>
-    <div class="tt-title">${esc(s ? storyTitle(s) : '')}</div><div style="color:var(--muted);margin-top:4px">${esc(t().reports(item.count))} · ${esc(timeAgo(item.latest))}</div>`;
+  const e = lead.events[0];
+  const c = CAT[e?.cat || item.topCat] || CAT.other;
+  const who = e ? (e.v === 1 ? t().voicesShort(1) : t().voices(e.v)) : '';
+  tooltip.innerHTML = `<div class="tt-head"><span class="badge" style="--c:${c.color}">${icon(SUB_ICON[e?.sub] || c.icon, 11)}${esc(t().cats[e?.cat || item.topCat])}</span><b>${esc(placeName(lead))}${item.places.length > 1 ? ` +${item.places.length - 1}` : ''}</b></div>
+    <div class="tt-title">${esc(e ? eventTitle(e) : '')}</div><div style="color:var(--muted);margin-top:4px">${item.count > 1 ? `${esc(t().events(item.count))} · ` : ''}${esc(who)} · ${esc(timeAgo(item.latest))}</div>`;
   const r = el.getBoundingClientRect();
   tooltip.style.left = `${r.left + 12}px`;
   tooltip.style.top = `${r.top}px`;
@@ -855,18 +907,19 @@ let tickerItems = [];
 let tickerIdx = 0;
 function renderTicker(force) {
   const now = Date.now() / 1000;
-  const items = store.view.stories
-    .filter((s) => s.sev * sourceFactor(s, store.source(s.source)) >= 0.5 && now - s.time < 8 * 3600)
-    .sort((a, b) => b.time - a.time)
+  // the latest serious events (single-source state media claims stay out of the headline strip)
+  const items = store.view.events
+    .filter((e) => !e.so && now - e.l < 8 * 3600 && (e.sev >= 0.62 || (e.sev >= 0.45 && e.v >= 3)))
+    .sort((a, b) => b.l - a.l)
     .slice(0, 8);
-  const ids = items.map((s) => s.id).join();
-  if (!force && ids === tickerItems.map((s) => s.id).join()) return;
+  const ids = items.map((e) => e.id).join();
+  if (!force && ids === tickerItems.map((e) => e.id).join()) return;
   tickerItems = items;
   tickerIdx = 0;
   const el = $('#ticker');
   el.hidden = !items.length;
   el.innerHTML = `<span class="ticker-tag">${esc(t().breaking)}</span><div class="ticker-win">${items
-    .map((s, i) => `<div class="ticker-item ${i === 0 ? 'in' : 'below'}" data-id="${esc(s.id)}"><span>${flag(s.loc?.cc)} ${esc(storyTitle(s))}</span><em>${esc(timeAgo(s.time, now))}</em></div>`)
+    .map((e, i) => `<div class="ticker-item ${i === 0 ? 'in' : 'below'}" data-id="${esc(e.id)}"><span>${flag(e.place?.cc)} ${esc(eventTitle(e))}</span><em>${esc(timeAgo(e.l, now))}</em></div>`)
     .join('')}</div>`;
 }
 setInterval(() => {
@@ -886,14 +939,14 @@ setInterval(() => {
 /** Swap in translated titles without restarting the rotation. */
 function refreshTickerText() {
   for (const el of $$('#ticker .ticker-item')) {
-    const s = tickerItems.find((x) => x.id === el.dataset.id);
+    const e = tickerItems.find((x) => x.id === el.dataset.id);
     const span = el.querySelector('span');
-    if (s && span) span.textContent = `${flag(s.loc?.cc)} ${storyTitle(s)}`;
+    if (e && span) span.textContent = `${flag(e.place?.cc)} ${eventTitle(e)}`;
   }
 }
 $('#ticker').addEventListener('click', () => {
-  const s = tickerItems[tickerIdx];
-  if (s) openStory(s.id);
+  const e = tickerItems[tickerIdx];
+  if (e) selectEvent(e);
 });
 
 // ---------------------------------------------------------------- search
@@ -942,9 +995,10 @@ function runSearch() {
     .slice(0, 5);
   for (const c of countries) searchHits.push({ kind: 'country', cc: c.cc, label: `${flag(c.cc)} ${countryName(c.cc)}`, meta: t().reports(v.countryById.get(c.cc)?.count || 0) });
   const places = v.places.filter((p) => p.kind !== 'country' && Math.max(score(p.name), score(p.zh)) > 0).slice(0, 6);
-  for (const p of places) searchHits.push({ kind: 'place', id: p.id, label: placeName(p), meta: t().reports(p.count) });
-  const stories = v.stories.filter((s) => score(s.title) > 0 || score(s.summary) > 0 || score(storyTitle(s)) > 0).sort((a, b) => b.w - a.w).slice(0, 10);
-  for (const s of stories) searchHits.push({ kind: 'story', id: s.id, label: storyTitle(s), meta: timeAgo(s.time) });
+  for (const p of places) searchHits.push({ kind: 'place', id: p.id, label: placeName(p), meta: t().events(p.count) });
+  // events: any of their reports' headlines or summaries (and the translated headline)
+  const events = v.events.filter((e) => score(eventTitle(e)) > 0 || e.vr.some((s) => score(s.title) > 0 || score(s.summary) > 0)).slice(0, 10);
+  for (const e of events) searchHits.push({ kind: 'event', id: e.id, label: eventTitle(e), meta: `${e.v === 1 ? t().voicesShort(1) : t().voicesShort(e.v)} · ${timeAgo(e.l)}` });
   paintSearch();
 }
 function paintSearch() {
@@ -952,7 +1006,7 @@ function paintSearch() {
   if (!searchHits.length) return (searchResults.innerHTML = `<div class="empty">${esc(t().searchNone)}</div>`);
   let html = '';
   let lastKind = '';
-  const groupName = { country: t().kinds.country, place: t().hotspots, story: t().tabs.feed };
+  const groupName = { country: t().kinds.country, place: t().hotspots, event: t().tabs.feed };
   searchHits.forEach((h, i) => {
     if (h.kind !== lastKind) html += `<div class="sr-group">${esc(groupName[h.kind])}</div>`;
     lastKind = h.kind;
@@ -968,7 +1022,7 @@ function pickSearch(h) {
   closeSearch();
   if (h.kind === 'country') selectCountry(h.cc);
   else if (h.kind === 'place') selectPlace(store.view.placeById.get(h.id));
-  else openStory(h.id);
+  else selectEvent(store.event(h.id));
 }
 
 // ---------------------------------------------------------------- legend & status popovers
@@ -983,7 +1037,10 @@ function toggleLegend() {
     <div class="lg-row"><span class="lg-sym ring" style="--c:${QUAKE_COLOR}">${icon('quake', 12)}</span>${esc(t().quakes)}</div>
     <div class="lg-row"><span class="lg-sym diamond" style="--c:${HAZARD_COLOR.orange}">${icon('cyclone', 11)}</span>${esc(t().weather)}</div>
     <div class="lg-row"><span class="lg-sym" style="--c:#2b6b8f">${icon('satellite', 12)}</span>${esc(t().satellites)}</div>
-    <div class="lg-note">${esc(t().legendSize)}<br>${esc(t().legendPulse)}<br>${esc(t().legendArc)}<br>${esc(t().legendPillar)}</div>`;
+    <div class="lg-row"><span class="lg-sym" style="--c:#ff4d5e"></span>${esc(t().legendSolid)}</div>
+    <div class="lg-row"><span class="lg-sym hollow" style="--c:#ff4d5e"></span>${esc(t().legendHollow)}</div>
+    <div class="lg-row"><span class="lg-sym dashed" style="--c:#ff4d5e"></span>${esc(t().legendDashed)}</div>
+    <div class="lg-note">${esc(t().legendSize)}<br>${esc(t().legendPillar)}<br>${esc(t().legendPulse)}<br>${esc(t().legendArc)}</div>`;
   pop.hidden = false;
 }
 $('#legend-btn').addEventListener('click', toggleLegend);
@@ -997,7 +1054,7 @@ $('#status-btn').addEventListener('click', () => {
   const ok = raw.sources.filter((s) => s.ok).length;
   pop.innerHTML = `<h4>${esc(t().dataStatus)}</h4>
     <div class="lg-row">${icon('clock', 15)} ${esc(new Date(raw.generated).toLocaleString())}</div>
-    <div class="lg-row">${icon('news', 15)} ${esc(t().reports(raw.stories.length))} · ${esc(t().sources(ok))}/${raw.sources.length}</div>
+    <div class="lg-row">${icon('news', 15)} ${esc(t().events(store.events.length))} · ${esc(t().reports(raw.stories.length))} · ${esc(t().sources(ok))}/${raw.sources.length}</div>
     <div class="lg-row">${icon('quake', 15)} ${raw.quakes.length} · ${icon('alert', 15)} ${raw.hazards.length}</div>
     <div class="lg-live">
       <div class="lg-row"><b>${esc(t().liveTitle)}</b></div>
@@ -1021,11 +1078,19 @@ document.addEventListener('pointerdown', (e) => {
 // ---------------------------------------------------------------- tour
 $('#tour-btn').addEventListener('click', () => (ui.tour ? stopTour() : startTour()));
 function startTour() {
-  const stops = store.view.places.slice(0, 8);
+  // the most important events, one per place
+  const stops = [];
+  const seen = new Set();
+  for (const e of store.view.events) {
+    if (!e.place || seen.has(e.place.id)) continue;
+    seen.add(e.place.id);
+    stops.push(e);
+    if (stops.length >= 8) break;
+  }
   if (!stops.length) return;
   let i = 0;
   const step = () => {
-    selectPlace(stops[i % stops.length], { fromTour: true });
+    selectEvent(stops[i % stops.length], { fromTour: true });
     i++;
   };
   ui.tour = setInterval(step, 8000);
@@ -1062,10 +1127,11 @@ function setHash(h) {
   }
 }
 function openFromHash() {
-  const m = /^#([pcqhs])=(.+)$/.exec(location.hash);
+  const m = /^#([epcqhs])=(.+)$/.exec(location.hash);
   if (!m) return false;
   const id = decodeURIComponent(m[2]);
-  if (m[1] === 'p') selectPlace(store.view.placeById.get(id));
+  if (m[1] === 'e') selectEvent(store.event(id));
+  else if (m[1] === 'p') selectPlace(store.view.placeById.get(id));
   else if (m[1] === 'c') selectCountry(id);
   else if (m[1] === 'q') selectQuake((store.raw.quakes || []).find((q) => q.id === id));
   else if (m[1] === 'h') selectHazard((store.raw.hazards || []).find((h) => h.id === id));
@@ -1150,22 +1216,30 @@ function checkForUpdates() {
 function applyData(raw, initial) {
   satellites = createSatellites(raw.satellites || []);
   mergeQuakes(raw, live.quakes); // keep quakes read straight from USGS that this copy predates
-  const added = store.setData(raw); // re-renders map, lists and the open panel
+  const diff = store.setData(raw); // re-renders map, lists and the open panel
   markers.setSats(satellites.positions());
   renderPaths();
   $('#sample-banner').hidden = !raw.sample;
-  if (!initial) announce(added);
+  if (!initial) announce(diff);
 }
 
-/** New reports: a burst of light where each one happened, a toast linking to the top one, a tab badge. */
-async function announce(added) {
-  const shown = new Set(store.view.stories.map((s) => s.id));
+/** New reports: a burst of light where their events are, a toast linking to the top event, a tab badge. */
+async function announce({ added, newEvents, grown }) {
+  const v = store.view;
+  const shown = new Set(v.stories.map((s) => s.id));
   const fresh = added.filter((s) => shown.has(s.id));
   if (!fresh.length) return;
-  flash(fresh.filter((s) => s.loc).map((s) => ({ lat: s.loc.lat, lng: s.loc.lng, color: CAT[s.cat]?.color || '#fff' })));
-  const top = fresh.reduce((a, b) => (b.w > a.w ? b : a));
-  await translateNow(top);
-  toast(`${t().newStories(fresh.length)} · ${storyTitle(top)}`, 7000, { onClick: () => openStory(top.id), live: true });
+  const evs = [...new Set(fresh.map((s) => store.event(s.ev)).filter(Boolean))];
+  flash(evs.filter((e) => e.place).map((e) => ({ lat: e.place.lat, lng: e.place.lng, color: CAT[e.cat]?.color || '#fff' })));
+  // headline: the most important new event, else the most important one with new reports
+  const visible = new Set(v.events);
+  const byWeight = (list) => list.filter((e) => visible.has(e)).sort((a, b) => b.w - a.w)[0];
+  const top = byWeight(newEvents) || byWeight(grown) || byWeight(evs);
+  const nNew = newEvents.filter((e) => visible.has(e)).length;
+  if (top) {
+    await translateNow(eventStory(top));
+    toast(`${t().newSummary(fresh.length, nNew)} · ${eventTitle(top)}`, 7000, { onClick: () => selectEvent(top), live: true });
+  }
   if (document.hidden) {
     live.unseen += fresh.length;
     updateTitle();
@@ -1266,7 +1340,7 @@ function initialAltitude() {
 }
 
 // handle for debugging from the console / automated checks
-window.__worldPulse = { view, store, markers, selectPlace, selectCountry, checkForUpdates };
+window.__worldPulse = { view, store, markers, selectPlace, selectEvent, selectCountry, checkForUpdates };
 
 async function boot() {
   applyStaticText();

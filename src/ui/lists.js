@@ -1,8 +1,9 @@
 // Side panel / bottom-sheet tab contents.
-import { CAT, HAZARD_COLOR, QUAKE_COLOR, SUB_ICON, TIME_WINDOWS } from '../config.js';
+import { CAT, HAZARD_COLOR, QUAKE_COLOR, TIME_WINDOWS } from '../config.js';
 import { getLang, t, timeAgo } from '../i18n.js';
-import { countryName, flag, placeName } from '../data/store.js';
-import { hazardText, quakePlace, storyTitle } from '../data/localize.js';
+import { countryName, flag } from '../data/store.js';
+import { hazardText, quakePlace } from '../data/localize.js';
+import { eventRow, eventRows, sevBars } from './panels.js';
 import { downloadProgress, translationStatus } from '../data/translate.js';
 import { esc } from './dom.js';
 import { icon } from './icons.js';
@@ -10,37 +11,16 @@ import { icon } from './icons.js';
 const seg = (action, options, current) =>
   `<div class="seg">${options.map(([v, label]) => `<button data-action="${action}" data-v="${v}" class="${String(v) === String(current) ? 'on' : ''}">${esc(label)}</button>`).join('')}</div>`;
 
-function srcName(store, id) {
-  const s = store.source(id);
-  return getLang() === 'zh' ? s.zh || s.name : s.name;
-}
-
 export function feedTab(store, ui) {
   const v = store.view;
   const f = store.filters;
-  const rows = [...v.headlines].sort((a, b) => (ui.sort === 'latest' ? b.time - a.time : b.w - a.w)).slice(0, 120);
-  const now = Date.now() / 1000;
+  const rows = [...v.events].sort((a, b) => (ui.sort === 'latest' ? b.l - a.l : b.w - a.w)).slice(0, 120);
   return `${translationBanner()}<div class="controls">
       ${seg('window', TIME_WINDOWS.map((h) => [h, t().hours(h)]), f.windowHours)}
       ${seg('sort', [['important', t().sortImportant], ['latest', t().sortLatest]], ui.sort)}
       ${seg('lang', [['all', t().langAll], ['zh', '中文'], ['en', 'EN']], f.lang)}
     </div>
-    ${
-      rows.length
-        ? rows
-            .map(({ lead: s, items }) => {
-              const c = CAT[s.cat] || CAT.other;
-              const others = new Set(items.map((i) => i.source)).size - 1;
-              const isNew = items.some((i) => i.fresh);
-              return `<button class="row${isNew ? ' is-new' : ''}" data-action="story" data-id="${esc(s.id)}" style="--c:${c.color}">
-                <span class="row-ico">${icon(SUB_ICON[s.sub] || c.icon, 15)}</span>
-                <span class="row-main"><span class="row-title" lang="${s.lang === 'zh' || storyTitle(s) !== s.title ? 'zh-CN' : 'en'}">${isNew ? `<span class="new-badge">${esc(t().newBadge)}</span>` : ''}${esc(storyTitle(s))}</span>
-                <span class="row-meta">${s.loc ? `<span>${flag(s.loc.cc)} ${esc(placeName(s.loc))}</span><span class="sep">·</span>` : ''}<span>${esc(srcName(store, s.source))}${others > 0 ? ` +${others}` : ''}</span><span class="sep">·</span><span>${esc(timeAgo(s.time, now))}</span></span></span>
-              </button>`;
-            })
-            .join('')
-        : `<div class="empty">${esc(t().noStories)}</div>`
-    }`;
+    ${rows.length ? eventRows(rows, store, { limit: 120 }) : `<div class="empty">${esc(t().noStories)}</div>`}`;
 }
 
 /** In the Chinese interface: offer (or report progress of) on-device translation of English reports. */
@@ -54,12 +34,51 @@ function translationBanner() {
   return '';
 }
 
-export function hotTab(store) {
+/** Official alerts that are severe but that our sources barely report. */
+export function overlookedHazards(store, shownEvents = new Set()) {
+  const now = Date.now() / 1000;
+  const raw = store.raw || {};
+  // alerts whose news event is already listed don't need a second row
+  const listed = (h) => h.ev && shownEvents.has(store.aliasOf(h.ev));
+  const hz = (raw.hazards || []).filter((h) => (h.alert === 'red' || h.alert === 'orange') && h.type !== 'drought' && now - (h.until || h.time) < 3 * 86400 && (h.v || 0) <= 1 && !listed(h));
+  const qs = (raw.quakes || []).filter((q) => (q.mag >= 7 || q.alert === 'orange' || q.alert === 'red') && now - q.time < 72 * 3600 && (q.v || 0) <= 1 && !listed(q));
+  return [...qs.map((q) => ({ kind: 'quake', item: q, sev: q.mag / 10 })), ...hz.map((h) => ({ kind: 'hazard', item: h, sev: h.alert === 'red' ? 0.85 : 0.68 }))].sort((a, b) => b.sev - a.sev);
+}
+
+function hazardRow({ kind, item }) {
+  if (kind === 'quake') {
+    const q = item;
+    return `<button class="row" data-action="quake" data-id="${esc(q.id)}" style="--c:${q.alert && q.alert !== 'green' ? HAZARD_COLOR[q.alert] : QUAKE_COLOR}">
+      <span class="mag">${q.mag.toFixed(1)}</span>
+      <span class="row-main"><span class="row-title">${esc(quakePlace(q))}</span><span class="row-meta"><span>USGS</span><span class="sep">·</span><span>${esc(timeAgo(q.time))}</span><span class="gap-tag">${icon('flag', 10)}${esc(q.v ? t().gapQuakeFew(q.v) : t().gapQuake)}</span></span></span></button>`;
+  }
+  const h = item;
+  return `<button class="row" data-action="hazard" data-id="${esc(h.id)}" style="--c:${HAZARD_COLOR[h.alert] || '#ffcc33'}">
+    <span class="row-ico">${icon(HAZ_ICON[h.type] || 'alert', 15)}</span>
+    <span class="row-main"><span class="row-title">${esc(hazardText(h, 'title'))}</span><span class="row-meta"><span class="badge">${esc(t().alertLevel[h.alert])}</span><span class="gap-tag">${icon('flag', 10)}${esc(h.v ? t().gapHazardFew(h.v) : t().gapHazard)}</span></span></span></button>`;
+}
+
+const HAZ_ICON = { storm: 'cyclone', flood: 'waves', volcano: 'volcano', fire: 'flame', drought: 'thermo', heat: 'thermo', landslide: 'mountain', quake: 'quake' };
+
+export function hotTab(store, ui) {
   const v = store.view;
-  const countries = v.countries.slice(0, 30);
+  const sort = ui.hotSort || 'imp';
+  const key = { imp: (e) => e.w, sev: (e) => e.sev + e.w * 0.01, att: (e) => e.v + e.att * 0.1 + e.w * 0.001 }[sort];
+  const ranked = [...v.events].sort((a, b) => key(b) - key(a)).slice(0, 15);
+  const gaps = v.gaps.slice(0, 6);
+  const alerts = overlookedHazards(store, new Set(gaps.map((e) => e.id))).slice(0, 4);
+  const countries = v.countries.slice(0, 25);
   const max = countries[0]?.score || 1;
-  const conflict = v.places.filter((p) => p.topCat === 'conflict').slice(0, 12);
-  return `<div class="section-h">${icon('flame', 13)} ${esc(t().hotspots)}</div>
+  return `${
+    gaps.length || alerts.length
+      ? `<div class="section-h gap-h">${icon('flag', 13)} ${esc(t().gap)}</div><p class="hint">${esc(t().gapWhy)}</p>${eventRows(gaps, store)}${alerts.map(hazardRow).join('')}`
+      : ''
+  }
+    <div class="section-h">${icon('flame', 13)} ${esc(t().hotspots)}</div>
+    <div class="controls">${seg('hot-sort', [['imp', t().sortBy.imp], ['sev', t().sortBy.sev], ['att', t().sortBy.att]], sort)}</div>
+    <p class="hint">${esc(t().rankHint)}</p>
+    ${ranked.length ? ranked.map((e, i) => eventRow(e, store, { rank: i + 1 })).join('') : `<div class="empty">${esc(t().noStories)}</div>`}
+    <div class="section-h">${icon('globe', 13)} ${esc(t().countriesH)}</div>
     ${
       countries
         .map((c, i) => {
@@ -69,25 +88,12 @@ export function hotTab(store) {
           return `<button class="row" data-action="country" data-cc="${esc(c.cc)}" style="--c:${col}">
             <span class="rank">${i + 1}</span>
             <span class="row-main"><span class="row-title">${flag(c.cc)} ${esc(countryName(c.cc))}</span>
-            <span class="row-meta"><span class="badge">${esc(t().cats[c.topCat])}</span>${trend}</span>
+            <span class="row-meta"><span class="badge">${esc(t().cats[c.topCat])}</span><span>${esc(t().events(c.count))}</span>${trend}</span>
             <span class="bar"><i style="width:${Math.max(4, (c.score / max) * 100).toFixed(1)}%"></i></span></span>
-            <span class="count">${c.count}</span>
+            <span class="row-side">${sevBars(c.maxSev, c.topCat)}</span>
           </button>`;
         })
         .join('') || `<div class="empty">${esc(t().noStories)}</div>`
-    }
-    ${
-      conflict.length
-        ? `<div class="section-h">${icon('crosshair', 13)} ${esc(t().conflictZones)}</div>${conflict
-            .map(
-              (p) => `<button class="row" data-action="place" data-id="${esc(p.id)}" style="--c:${CAT.conflict.color}">
-            <span class="row-ico">${icon(SUB_ICON[p.stories[0]?.sub] || 'crosshair', 15)}</span>
-            <span class="row-main"><span class="row-title">${esc(placeName(p))}</span>
-            <span class="row-meta"><span>${esc(p.stories[0] ? storyTitle(p.stories[0]) : '')}</span></span></span>
-            <span class="count">${p.count}</span></button>`,
-            )
-            .join('')}`
-        : ''
     }`;
 }
 
@@ -107,7 +113,7 @@ export function hazardsTab(store, sats) {
         .map((h) => {
           const c = HAZARD_COLOR[h.alert] || '#ffcc33';
           return `<button class="row" data-action="hazard" data-id="${esc(h.id)}" style="--c:${c}">
-            <span class="row-ico">${icon({ storm: 'cyclone', flood: 'waves', volcano: 'volcano', fire: 'flame', drought: 'thermo', heat: 'thermo', landslide: 'mountain', quake: 'quake' }[h.type] || 'alert', 15)}</span>
+            <span class="row-ico">${icon(HAZ_ICON[h.type] || 'alert', 15)}</span>
             <span class="row-main"><span class="row-title">${esc(hazardText(h, 'title'))}</span>
             <span class="row-meta">${h.alert ? `<span class="badge">${esc(t().alertLevel[h.alert])}</span>` : ''}<span>${esc(t().subs[h.type] || h.type)}</span><span class="sep">·</span><span>${esc(timeAgo(h.time))}</span></span></span>
           </button>`;

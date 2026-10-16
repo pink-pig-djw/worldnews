@@ -9,7 +9,8 @@ const BASE_SEVERITY = { conflict: 0.55, disaster: 0.5, unrest: 0.45, society: 0.
 const RULES = [
   ['conflict', 'airstrike', 3, /\bair ?(?:strikes?|raids?)\b|\bbombard(?:s|ed|ment)?\b|\bwarplanes?\b|\bfighter jets?\b|\bbomb(?:s|ed|ing)\b(?! threat)|\b(?:israeli|russian|us|u\.s\.|ukrainian|deadly|retaliatory|military|pakistani|indian|saudi|turkish) strikes?\b|\bstrikes? (?:kill|hit|target|on)\b|\b\d[\d,]* (?:air ?)?strikes\b|\b(?:refinery|drone|missile|retaliatory|deadly|overnight|cross-border|precision|pre-emptive|preemptive) strikes?\b/i, /空袭|轰炸|战机|空中打击|军事打击/],
   ['conflict', 'clash', 1.5, /\bhouthis?\b|\bhamas\b|\bhezbollah\b|\btaliban\b|\brsf\b|\bal-shabaab?\b|\bboko haram\b|\bm23\b|\bisis\b|\bislamic state\b|\bwagner\b/i, /胡塞|哈马斯|真主党|塔利班|快速支援部队|青年党|博科圣地|伊斯兰国|瓦格纳/],
-  ['conflict', 'clash', 1.2, /\bkill(?:s|ed|ing)\b|\bdead\b|\bcasualties\b/i, /打死|炸死|伤亡/],
+  // "killed" alone does not make a war story (accidents, crime, zoo attacks): it only tips the balance
+  ['conflict', 'clash', 0.7, /\bkill(?:s|ed|ing)\b|\bdead\b|\bcasualties\b/i, /打死|炸死|伤亡/],
   ['conflict', 'missile', 3, /\bmissiles?\b|\brockets?\b(?! launch)|\bballistic\b|\binterceptors?\b|\biron dome\b|\bhypersonic\b/i, /导弹|火箭弹|拦截|弹道/],
   ['conflict', 'drone', 3, /\bdrones?\b|\buavs?\b|\bshahed\b|\bkamikaze\b/i, /无人机/],
   ['conflict', 'shelling', 3, /\bshell(?:ing|ed|s)\b|\bartillery\b|\bmortars?\b/i, /炮击|炮火|炮弹/],
@@ -70,7 +71,7 @@ const RULES = [
 const SPECIFIC_SUB = new Set(['airstrike', 'missile', 'drone', 'shelling', 'naval']);
 
 // Phrases that would otherwise trip the conflict rules
-const NOT_WAR = /\b(?:trade|price|tariff|currency|chip|culture|bidding|tech) (?:wars?|truce)\b|\bwar on (?:drugs|crime|terror)\b|\bwar chest\b|\bunder fire\b|\bopen(?:s|ed)? fire on (?:critics|plan)\b/i;
+const NOT_WAR = /\b(?:trade|price|tariff|currency|chip|culture|bidding|tech) (?:wars?|truce)\b|\bwar on (?:drugs|crime|terror)\b|\bwar chest\b|\bunder fire\b|\bopen(?:s|ed)? fire on (?:critics|plan)\b|\bfight(?:s|ing)? (?:the )?(?:wild|bush|forest )?(?:fires?|blazes?|floods?)\b|\bfirefight(?:er|ers|ing)\b|\binvasive\b/i;
 const ZH_NOT_WAR = /贸易战|价格战|关税战|货币战|芯片战|科技战|贸易休战|关税休战/;
 
 const WORD_NUM = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, fifteen: 15, twenty: 20, thirty: 30, forty: 40, fifty: 50, dozens: 24, dozen: 12, scores: 40, hundreds: 200, thousands: 2000 };
@@ -95,13 +96,29 @@ export function extractDeaths(text, zh) {
   let best = 0;
   for (const re of zh ? DEATH_ZH : DEATH_EN) {
     const m = re.exec(text);
-    if (m) best = Math.max(best, toNumber(m[1]));
+    if (!m) continue;
+    const n = toNumber(m[1]);
+    if (n >= 1900 && n <= 2100 && /^\d{4}$/.test(m[1])) continue; // a year, not a toll
+    best = Math.max(best, n);
   }
-  return best > 100000 ? 0 : best; // guard against years / large unrelated numbers
+  return best > 100000 ? 0 : best; // guard against large unrelated numbers
 }
 
-const ESCALATORS = /\b(?:killed|dead|deaths|death toll|fatalities|massacre|genocide|famine|catastroph\w*|deadliest|invasion|nuclear|martial law|state of emergency|evacuat\w+)\b/i;
-const ZH_ESCALATORS = /死亡|遇难|丧生|屠杀|种族灭绝|饥荒|灾难|入侵|核|戒严|紧急状态|撤离/;
+/** Death toll of a report: from the title, or from the summary when the title is about deaths. */
+export function reportDeaths(title, summary, zh) {
+  const t = extractDeaths(title, zh);
+  // a vague title ("dozens killed") gives way to the summary's exact figure
+  if ((t && !VAGUE.test(title)) || !summary) return t;
+  return (zh ? DEATH_WORD_ZH : DEATH_WORD_EN).test(title) ? Math.max(t, extractDeaths(summary, zh)) : t;
+}
+const VAGUE = /\b(?:dozens|scores|hundreds|thousands)\b|数十|数百|上百|上千|数千|逾百|近百/i;
+
+const ESCALATORS = /\b(?:killed|dead|deaths|death toll|fatalities|massacre|genocide|famine|catastroph\w*|deadliest|invasion|nuclear (?:weapons?|warheads?|strikes?|attack|war|test|threat)|martial law|state of emergency|evacuat\w+)\b/i;
+const ZH_ESCALATORS = /死亡|遇难|丧生|屠杀|种族灭绝|饥荒|灾难|入侵|核武|核弹|核战|核打击|核攻击|戒严|紧急状态|撤离/;
+// Death tolls are read from the title; the summary only counts when the title is about deaths too
+// (summaries often give background: "the 2022 war left thousands dead", "in October 2025 she died").
+const DEATH_WORD_EN = /\b(?:kill\w*|dead|deaths?|dies|died|dying|deadly|deadliest|toll|fatal\w*|massacre\w*|bodies|lives)\b/i;
+const DEATH_WORD_ZH = /死|亡|遇难|丧生|罹难|殒命/;
 
 export function classify(title, summary = '', lang = 'en') {
   const zh = lang.startsWith('zh');
@@ -146,7 +163,7 @@ export function classify(title, summary = '', lang = 'en') {
   let sev = BASE_SEVERITY[cat];
   if (cat === 'conflict' && (sub === 'ceasefire' || sub === 'military')) sev -= 0.1;
   if (cat === 'disaster' && sub === 'quake') sev += 0.05;
-  const deaths = extractDeaths(text, zh);
+  const deaths = reportDeaths(t, s, zh);
   if (deaths >= 1000) sev += 0.38;
   else if (deaths >= 100) sev += 0.3;
   else if (deaths >= 50) sev += 0.25;

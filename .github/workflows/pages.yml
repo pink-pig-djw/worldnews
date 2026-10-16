@@ -34,7 +34,7 @@ jobs:
       - name: Unit tests
         run: npm test
 
-      - name: Restore previous run (rolling 48 h window)
+      - name: Restore previous run (48-hour window + 15-day event memory)
         uses: actions/cache/restore@v4
         with:
           path: .cache/state
@@ -52,8 +52,8 @@ jobs:
           export PREV_DATA_URL="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/data/latest.json"
           node scripts/fetch-data.mjs --out dist/data --prev .cache/state/latest.json
 
-      - name: Keep this run's data for the next run
-        run: mkdir -p .cache/state && cp dist/data/latest.json .cache/state/latest.json
+      - name: Keep this run's data and event memory for the next run
+        run: mkdir -p .cache/state && cp dist/data/latest.json dist/data/state.json .cache/state/
 
       - uses: actions/cache/save@v4
         with:

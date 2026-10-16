@@ -61,7 +61,7 @@ export function createZh(gaz) {
     if (!list) return null;
     const parts = list.split(/,\s*/).map((s) => s.trim()).filter((s) => s && !/^\[?unknown\]?$/i.test(s));
     if (!parts.length) return null;
-    const zh = parts.map((p) => nameOr(p));
+    const zh = [...new Set(parts.map((p) => nameOr(p)))]; // "México, Mexico" are one country
     return zh.length > max ? `${zh.slice(0, max).join('、')} 等 ${zh.length} 国` : zh.join('、');
   }
 
